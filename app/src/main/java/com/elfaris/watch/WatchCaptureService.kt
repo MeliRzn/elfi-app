@@ -51,6 +51,7 @@ class WatchCaptureService : Service() {
             }
             ACTION_START -> {
                 if (!isCaptureActive) {
+                    isCaptureActive = true
                     includeMicrophone = intent.getBooleanExtra(EXTRA_MICROPHONE, false)
                     startForegroundCompat(includeMicrophone)
                     worker.execute { startCapture(intent) }
@@ -123,7 +124,6 @@ class WatchCaptureService : Service() {
     private fun startCapture(intent: Intent) {
         try {
             if (roomClient == null) throw IllegalStateException("Entre na sala antes de compartilhar a tela.")
-            if (isCaptureActive) return
             val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
             val projectionData = getProjectionIntent(intent)
             if (resultCode != RESULT_OK || projectionData == null) {
