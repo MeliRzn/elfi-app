@@ -422,14 +422,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun addHeader(root: LinearLayout, title: String, subtitle: String) {
-        val mark = TextView(this).apply {
-            text = "E"
-            textSize = 23f
-            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.watch_primary))
-            gravity = Gravity.CENTER
-            setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.watch_surface_variant))
+        val cover = ImageView(this).apply {
+            setImageResource(R.drawable.elfaris_brand)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = "Capa e logo Elfaris"
+            setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.watch_background))
+            adjustViewBounds = false
         }
-        root.addView(mark, LinearLayout.LayoutParams(dp(48), dp(48)).apply { bottomMargin = dp(22) })
+        root.addView(cover, LinearLayout.LayoutParams(-1, dp(220)).apply {
+            bottomMargin = dp(18)
+        })
         addText(root, title, 28f, true, R.color.watch_text)
         addText(root, subtitle, 14f, false, R.color.watch_muted)
     }
