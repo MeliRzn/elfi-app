@@ -30,6 +30,7 @@ class WatchRoomClient(
     private val displayName: String,
     private val factory: PeerConnectionFactory,
     private val onStatus: (String) -> Unit,
+    private val onParticipants: (List<String>) -> Unit = {},
     private val onFatal: () -> Unit = {}
 ) {
     private data class PeerLink(
@@ -55,6 +56,8 @@ class WatchRoomClient(
     @Volatile private var iceServers: List<PeerConnection.IceServer> = emptyList()
     @Volatile private var localVideo: VideoTrack? = null
     @Volatile private var localAudio: AudioTrack? = null
+    private val participantNames = LinkedHashMap<String, String>()
+    @Volatile private var presenterId = ""
 
     fun start(videoTrack: VideoTrack, audioTrack: AudioTrack?) {
         localVideo = videoTrack
@@ -80,6 +83,16 @@ class WatchRoomClient(
                 iceServers = parseIceServers(joined.optJSONArray("iceServers"))
                 post("share", auth().put("active", true))
                 active = true
+                presenterId = peerId
+                val initialParticipants = joined.optJSONArray("participants")
+                if (initialParticipants != null) {
+                    for (index in 0 until initialParticipants.length()) {
+                        val item = initialParticipants.optJSONObject(index) ?: continue
+                        val id = item.optString("id")
+                        if (id.isNotBlank()) participantNames[id] = item.optString("name").ifBlank { "Convidado" }
+                    }
+                }
+                publishParticipants()
                 connectEvents()
                 val existing = joined.optJSONArray("participants")
                 if (existing != null) {
@@ -219,21 +232,38 @@ class WatchRoomClient(
         when (event) {
             "state" -> {
                 val state = JSONObject(raw)
+                presenterId = state.optString("presenterId")
                 val participants = state.optJSONArray("participants") ?: return
+                synchronized(participantNames) { participantNames.clear() }
                 for (index in 0 until participants.length()) {
                     val item = participants.optJSONObject(index) ?: continue
                     val id = item.optString("id")
-                    if (id.isNotBlank() && id != peerId) createViewerConnection(id)
+                    if (id.isNotBlank()) {
+                        synchronized(participantNames) {
+                            participantNames[id] = item.optString("name").ifBlank { "Convidado" }
+                        }
+                        if (id != peerId) createViewerConnection(id)
+                    }
                 }
+                publishParticipants()
             }
             "participant-joined" -> {
                 val item = JSONObject(raw)
                 val id = item.optString("peerId")
-                if (id.isNotBlank()) createViewerConnection(id)
+                if (id.isNotBlank()) {
+                    synchronized(participantNames) {
+                        participantNames[id] = item.optString("name").ifBlank { "Convidado" }
+                    }
+                    createViewerConnection(id)
+                    publishParticipants()
+                }
             }
             "participant-left" -> {
                 val item = JSONObject(raw)
-                links.remove(item.optString("peerId"))?.let { closeLink(it) }
+                val id = item.optString("peerId")
+                synchronized(participantNames) { participantNames.remove(id) }
+                links.remove(id)?.let { closeLink(it) }
+                publishParticipants()
             }
             "signal" -> {
                 val data = JSONObject(raw)
@@ -273,6 +303,8 @@ class WatchRoomClient(
             }
             "sharing" -> {
                 val state = JSONObject(raw)
+                presenterId = state.optString("presenterId")
+                publishParticipants()
                 if (!state.optBoolean("active", true) && active) {
                     onStatus("A transmissão foi encerrada.")
                     stop()
@@ -280,6 +312,20 @@ class WatchRoomClient(
                 }
             }
         }
+    }
+
+    private fun publishParticipants() {
+        val names = synchronized(participantNames) {
+            participantNames.map { (id, name) ->
+                when {
+                    id == peerId && id == presenterId -> "$name · você está transmitindo"
+                    id == presenterId -> "$name · transmitindo"
+                    id == peerId -> "$name · você"
+                    else -> "$name · assistindo"
+                }
+            }
+        }
+        onParticipants(names)
     }
 
     private fun parseIceServers(json: JSONArray?): List<PeerConnection.IceServer> {
