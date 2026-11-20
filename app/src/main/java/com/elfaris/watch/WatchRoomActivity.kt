@@ -111,6 +111,7 @@ class WatchRoomActivity : AppCompatActivity() {
         val frame = FrameLayout(this)
         preview = SurfaceViewRenderer(this).apply {
             setBackgroundColor(android.graphics.Color.BLACK)
+            setSecure(true)
             setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
             contentDescription = "Prévia da tela compartilhada"
         }
