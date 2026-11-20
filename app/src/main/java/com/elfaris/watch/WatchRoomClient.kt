@@ -10,6 +10,8 @@ import org.json.JSONObject
 import org.webrtc.IceCandidate
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
+import org.webrtc.MediaStreamTrack
+import org.webrtc.RtpTransceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
 import org.webrtc.AudioTrack
@@ -31,7 +33,8 @@ class WatchRoomClient(
     private val factory: PeerConnectionFactory,
     private val onStatus: (String) -> Unit,
     private val onParticipants: (List<String>) -> Unit = {},
-    private val onFatal: () -> Unit = {}
+    private val onFatal: () -> Unit = {},
+    private val onRemoteVideo: (VideoTrack) -> Unit = {}
 ) {
     private data class PeerLink(
         val connection: PeerConnection,
@@ -59,9 +62,7 @@ class WatchRoomClient(
     private val participantNames = LinkedHashMap<String, String>()
     @Volatile private var presenterId = ""
 
-    fun start(videoTrack: VideoTrack, audioTrack: AudioTrack?) {
-        localVideo = videoTrack
-        localAudio = audioTrack
+    fun start() {
         network.execute {
             try {
                 val roomUri = Uri.parse(roomUrl)
@@ -81,9 +82,7 @@ class WatchRoomClient(
                 peerToken = joined.getString("token")
                 if (closed.get()) return@execute
                 iceServers = parseIceServers(joined.optJSONArray("iceServers"))
-                post("share", auth().put("active", true))
-                active = true
-                presenterId = peerId
+                presenterId = joined.optString("presenterId")
                 val initialParticipants = joined.optJSONArray("participants")
                 if (initialParticipants != null) {
                     for (index in 0 until initialParticipants.length()) {
@@ -94,19 +93,51 @@ class WatchRoomClient(
                 }
                 publishParticipants()
                 connectEvents()
-                val existing = joined.optJSONArray("participants")
-                if (existing != null) {
-                    for (index in 0 until existing.length()) {
-                        val item = existing.optJSONObject(index) ?: continue
-                        val id = item.optString("id")
-                        if (id.isNotBlank() && id != peerId) createViewerConnection(id)
-                    }
-                }
-                onStatus("Na sala. Sua tela está sendo compartilhada com os participantes.")
+                onStatus(if (presenterId.isBlank()) "Você entrou na sala. Ainda não há transmissão ativa."
+                    else "Você entrou na sala. Conectando à transmissão...")
             } catch (error: Exception) {
                 onStatus(error.message ?: "Não foi possível entrar na sala.")
                 stop()
                 onFatal()
+            }
+        }
+    }
+
+    fun startSharing(videoTrack: VideoTrack, audioTrack: AudioTrack?) {
+        network.execute {
+            if (closed.get() || active) return@execute
+            try {
+                post("share", auth().put("active", true))
+                localVideo = videoTrack
+                localAudio = audioTrack
+                active = true
+                presenterId = peerId
+                val existing = synchronized(participantNames) { participantNames.keys.toList() }
+                existing.filter { it != peerId }.forEach(::createViewerConnection)
+                publishParticipants()
+                onStatus("Sua tela está sendo compartilhada.")
+            } catch (error: Exception) {
+                onStatus(error.message ?: "Não foi possível iniciar o compartilhamento.")
+            }
+        }
+    }
+
+    fun stopSharing() {
+        network.execute {
+            if (closed.get() || !active) return@execute
+            try {
+                post("share", auth().put("active", false))
+            } catch (error: Exception) {
+                onStatus(error.message ?: "Não foi possível encerrar a transmissão.")
+            } finally {
+                active = false
+                presenterId = ""
+                links.values.forEach(::closeLink)
+                links.clear()
+                localVideo = null
+                localAudio = null
+                publishParticipants()
+                onStatus("Compartilhamento encerrado. Você continua na sala.")
             }
         }
     }
@@ -172,8 +203,65 @@ class WatchRoomClient(
         override fun onIceCandidatesRemoved(candidates: Array<IceCandidate>) = Unit
         override fun onAddStream(stream: org.webrtc.MediaStream) = Unit
         override fun onRemoveStream(stream: org.webrtc.MediaStream) = Unit
+        override fun onTrack(transceiver: RtpTransceiver) {
+            (transceiver.receiver.track() as? VideoTrack)?.let(onRemoteVideo)
+        }
         override fun onDataChannel(channel: org.webrtc.DataChannel) = Unit
         override fun onRenegotiationNeeded() = Unit
+    }
+
+    private fun handleIncomingOffer(remoteId: String, payload: JSONObject) {
+        if (closed.get() || remoteId.isBlank()) return
+        try {
+            links.remove(remoteId)?.let(::closeLink)
+            val connection = factory.createPeerConnection(PeerConnection.RTCConfiguration(iceServers), createObserver(remoteId))
+                ?: throw IOException("Não foi possível criar a conexão de vídeo.")
+            val link = PeerLink(connection)
+            links[remoteId] = link
+            connection.addTransceiver(
+                MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO,
+                RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY)
+            )
+            connection.addTransceiver(
+                MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO,
+                RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY)
+            )
+            val offer = SessionDescription(
+                SessionDescription.Type.fromCanonicalForm(payload.getString("type")),
+                payload.getString("sdp")
+            )
+            connection.setRemoteDescription(object : SdpObserver {
+                override fun onSetSuccess() {
+                    connection.createAnswer(object : SdpObserver {
+                        override fun onCreateSuccess(description: SessionDescription) {
+                            connection.setLocalDescription(object : SdpObserver {
+                                override fun onSetSuccess() {
+                                    val local = connection.localDescription ?: return
+                                    sendSignal(remoteId, "answer", JSONObject()
+                                        .put("type", local.type.canonicalForm())
+                                        .put("sdp", local.description))
+                                    synchronized(link.pendingIce) {
+                                        link.pendingIce.forEach { connection.addIceCandidate(it) }
+                                        link.pendingIce.clear()
+                                    }
+                                }
+                                override fun onSetFailure(error: String) = onStatus(error)
+                                override fun onCreateSuccess(description: SessionDescription) = Unit
+                                override fun onCreateFailure(error: String) = Unit
+                            }, description)
+                        }
+                        override fun onSetSuccess() = Unit
+                        override fun onCreateFailure(error: String) = onStatus(error)
+                        override fun onSetFailure(error: String) = onStatus(error)
+                    }, org.webrtc.MediaConstraints())
+                }
+                override fun onSetFailure(error: String) = onStatus(error)
+                override fun onCreateSuccess(description: SessionDescription) = Unit
+                override fun onCreateFailure(error: String) = Unit
+            }, offer)
+        } catch (error: Exception) {
+            onStatus(error.message ?: "Não foi possível receber a transmissão.")
+        }
     }
 
     private fun connectEvents() {
@@ -242,7 +330,7 @@ class WatchRoomClient(
                         synchronized(participantNames) {
                             participantNames[id] = item.optString("name").ifBlank { "Convidado" }
                         }
-                        if (id != peerId) createViewerConnection(id)
+                        if (id != peerId && active) createViewerConnection(id)
                     }
                 }
                 publishParticipants()
@@ -254,7 +342,7 @@ class WatchRoomClient(
                     synchronized(participantNames) {
                         participantNames[id] = item.optString("name").ifBlank { "Convidado" }
                     }
-                    createViewerConnection(id)
+                    if (active) createViewerConnection(id)
                     publishParticipants()
                 }
             }
@@ -268,8 +356,13 @@ class WatchRoomClient(
             "signal" -> {
                 val data = JSONObject(raw)
                 val from = data.optString("from")
+                val signalType = data.optString("type")
+                if (signalType == "offer") {
+                    handleIncomingOffer(from, data.getJSONObject("payload"))
+                    return
+                }
                 val link = links[from] ?: return
-                when (data.optString("type")) {
+                when (signalType) {
                     "answer" -> {
                         val payload = data.getJSONObject("payload")
                         val description = SessionDescription(
@@ -305,10 +398,11 @@ class WatchRoomClient(
                 val state = JSONObject(raw)
                 presenterId = state.optString("presenterId")
                 publishParticipants()
-                if (!state.optBoolean("active", true) && active) {
-                    onStatus("A transmissão foi encerrada.")
-                    stop()
-                    onFatal()
+                if (!state.optBoolean("active", true)) {
+                    if (active && presenterId == peerId) return
+                    links.values.forEach(::closeLink)
+                    links.clear()
+                    onStatus("A transmissão foi encerrada. Você continua na sala.")
                 }
             }
         }
