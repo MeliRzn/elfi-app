@@ -1,14 +1,10 @@
 package com.elfaris.watch
 
-import android.Manifest
-import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
-import android.media.projection.MediaProjectionManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -21,8 +17,6 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
-import androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -41,47 +35,7 @@ class MainActivity : AppCompatActivity() {
     private var account: WatchAccount? = null
     private var selectedAvatar: ByteArray? = null
     private var profileAvatarView: ImageView? = null
-    private var pendingRoomUrl: String? = null
     private var pendingActivationToken: String? = null
-    private var showingSharingScreen = false
-    private val captureStoppedReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: android.content.Context?, intent: Intent?) {
-            if (showingSharingScreen) {
-                showHome(isSharing = false)
-                toast(intent?.getStringExtra(WatchCaptureService.EXTRA_STATUS)
-                    ?: "A transmissão foi encerrada.")
-            }
-        }
-    }
-
-    private val audioPermissionLauncher = registerForActivityResult(RequestPermission()) {
-        launchScreenCapture()
-    }
-
-    private val screenCaptureLauncher = registerForActivityResult(StartActivityForResult()) { result ->
-        val roomUrl = pendingRoomUrl
-        pendingRoomUrl = null
-        if (result.resultCode != Activity.RESULT_OK || result.data == null || roomUrl == null) {
-            toast("O compartilhamento de tela foi cancelado.")
-            return@registerForActivityResult
-        }
-        val includeMicrophone = store.microphoneEnabled &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        val serviceIntent = Intent(this, WatchCaptureService::class.java).apply {
-            action = WatchCaptureService.ACTION_START
-            putExtra(WatchCaptureService.EXTRA_SERVER, store.server)
-            putExtra(WatchCaptureService.EXTRA_ROOM_URL, roomUrl)
-            putExtra(WatchCaptureService.EXTRA_NAME, account?.name ?: "Convidado")
-            putExtra(WatchCaptureService.EXTRA_RESULT_CODE, result.resultCode)
-            putExtra(WatchCaptureService.EXTRA_PROJECTION_DATA, result.data)
-            putExtra(WatchCaptureService.EXTRA_MICROPHONE, includeMicrophone)
-        }
-        ContextCompat.startForegroundService(this, serviceIntent)
-        showingSharingScreen = false
-        startActivity(Intent(this, WatchRoomActivity::class.java))
-        toast(if (includeMicrophone) "Entrando na sala e iniciando a transmissão." else "Entrando na sala e iniciando a transmissão sem microfone.")
-    }
-
     private val imagePicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             selectedAvatar = readAndCompressImage(uri)
@@ -105,28 +59,6 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (!handleDeepLink(intent)) refresh()
-    }
-
-    override fun onStart() {
-        super.onStart()
-        ContextCompat.registerReceiver(
-            this,
-            captureStoppedReceiver,
-            IntentFilter(WatchCaptureService.ACTION_CAPTURE_STOPPED),
-            ContextCompat.RECEIVER_NOT_EXPORTED
-        )
-    }
-
-    override fun onStop() {
-        unregisterReceiver(captureStoppedReceiver)
-        super.onStop()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        if (showingSharingScreen && !WatchCaptureService.isCaptureActive) {
-            showHome(isSharing = false)
-        }
     }
 
     override fun onDestroy() {
@@ -171,11 +103,7 @@ class MainActivity : AppCompatActivity() {
                 val result = api.me(store.server, store.token)
                 runOnUiThread {
                     account = result
-                    if (WatchCaptureService.isCaptureActive) {
-                        startActivity(Intent(this, WatchRoomActivity::class.java))
-                    } else {
-                        showHome()
-                    }
+                    showHome()
                 }
             } catch (error: Exception) {
                 runOnUiThread {
@@ -381,31 +309,6 @@ class MainActivity : AppCompatActivity() {
         } catch (error: Exception) {
             showMessage(error.message ?: "Link de sala inválido.")
         }
-    }
-
-    private fun beginRoomCapture(value: String) {
-        try {
-            val uri = Uri.parse(value.trim())
-            val serverUri = Uri.parse(store.server)
-            require(uri.scheme == "https" && uri.authority == serverUri.authority &&
-                uri.path.orEmpty().matches(Regex("^/watch/[A-Za-z0-9_-]{8,}$")) &&
-                uri.getQueryParameter("host").isNullOrBlank()) {
-                "Use o link HTTPS compartilhável gerado pelo comando transmitir app."
-            }
-            pendingRoomUrl = uri.toString()
-            if (store.microphoneEnabled && ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            } else {
-                launchScreenCapture()
-            }
-        } catch (error: Exception) {
-            showMessage(error.message ?: "Link de sala inválido.")
-        }
-    }
-
-    private fun launchScreenCapture() {
-        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        screenCaptureLauncher.launch(manager.createScreenCaptureIntent())
     }
 
     private fun openRoom(value: String) {
