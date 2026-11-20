@@ -2,9 +2,11 @@ package com.elfaris.watch
 
 import android.Manifest
 import android.app.Activity
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.graphics.Bitmap
@@ -41,6 +43,16 @@ class MainActivity : AppCompatActivity() {
     private var profileAvatarView: ImageView? = null
     private var pendingRoomUrl: String? = null
     private var pendingActivationToken: String? = null
+    private var showingSharingScreen = false
+    private val captureStoppedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: Intent?) {
+            if (showingSharingScreen) {
+                showHome(isSharing = false)
+                toast(intent?.getStringExtra(WatchCaptureService.EXTRA_STATUS)
+                    ?: "A transmissão foi encerrada.")
+            }
+        }
+    }
 
     private val audioPermissionLauncher = registerForActivityResult(RequestPermission()) {
         launchScreenCapture()
@@ -92,6 +104,28 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (!handleDeepLink(intent)) refresh()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        ContextCompat.registerReceiver(
+            this,
+            captureStoppedReceiver,
+            IntentFilter(WatchCaptureService.ACTION_CAPTURE_STOPPED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+    }
+
+    override fun onStop() {
+        unregisterReceiver(captureStoppedReceiver)
+        super.onStop()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (showingSharingScreen && !WatchCaptureService.isCaptureActive) {
+            showHome(isSharing = false)
+        }
     }
 
     override fun onDestroy() {
@@ -216,6 +250,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showHome(isSharing: Boolean = WatchCaptureService.isCaptureActive) {
+        showingSharingScreen = isSharing
         val user = account ?: return showActivationScreen()
         val root = screenBase(showNavigation = true, selectedTab = 1)
         addHeader(
