@@ -219,6 +219,11 @@ class WatchRoomActivity : AppCompatActivity() {
         finish()
     }
 
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        stopAndLeave()
+    }
+
     private fun params(top: Int = 0) = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(top) }
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 }
