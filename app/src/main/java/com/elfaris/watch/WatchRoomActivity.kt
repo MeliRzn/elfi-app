@@ -122,6 +122,8 @@ class WatchRoomActivity : AppCompatActivity() {
             joined = true
             WatchCaptureService.join(this, server, roomUrl, displayName)
         }
+        roomConnected = WatchCaptureService.isRoomConnected
+        if (roomConnected) status.text = "Você está conectado à sala."
         attachPreview()
         syncButtons()
     }
