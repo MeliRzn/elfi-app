@@ -109,6 +109,10 @@ class WatchCaptureService : Service() {
                     previewTrack = track
                     previewEglContext = eglBase?.eglBaseContext
                     sendBroadcast(Intent(ACTION_PREVIEW_READY).setPackage(packageName))
+                },
+                onRemoteVideoCleared = {
+                    previewTrack = null
+                    sendBroadcast(Intent(ACTION_PREVIEW_CLEARED).setPackage(packageName))
                 }
             )
             roomClient!!.start()
