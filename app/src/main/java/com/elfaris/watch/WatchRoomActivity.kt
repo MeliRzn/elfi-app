@@ -298,18 +298,23 @@ class WatchRoomActivity : AppCompatActivity() {
     }
 
     private fun clearPreview() {
-        if (previewAttached) {
-            WatchCaptureService.detachPreview(preview)
-            previewAttached = false
-        }
         if (::preview.isInitialized) {
-            preview.parent?.let { parent ->
-                if (parent is FrameLayout) parent.findViewWithTag<View>("empty_preview")?.visibility = View.VISIBLE
-            }
-            preview = SurfaceViewRenderer(this).apply {
-                setBackgroundColor(android.graphics.Color.BLACK)
-                setSecure(true)
-                setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+            val parent = preview.parent as? FrameLayout
+            val index = parent?.indexOfChild(preview) ?: -1
+            val oldLayoutParams = preview.layoutParams
+            if (previewAttached) WatchCaptureService.detachPreview(preview)
+            else runCatching { preview.release() }
+            previewAttached = false
+            if (parent != null && index >= 0) {
+                parent.removeViewAt(index)
+                preview = SurfaceViewRenderer(this).apply {
+                    setBackgroundColor(android.graphics.Color.BLACK)
+                    setSecure(true)
+                    setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+                    contentDescription = "Tela compartilhada na sala"
+                }
+                parent.addView(preview, index, oldLayoutParams)
+                parent.findViewWithTag<View>("empty_preview")?.visibility = View.VISIBLE
             }
         }
         syncButtons()
