@@ -31,6 +31,20 @@ jobs:
           gradle-version: "8.9"
       - name: Build debug APK
         run: gradle --no-daemon --stacktrace assembleDebug
+      - name: Verify packaged Android ABIs
+        shell: bash
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK"
+          echo "Native libraries packaged in $APK:"
+          unzip -Z1 "$APK" | awk -F/ '$1 == "lib" && NF >= 3 { print $2 }' | sort -u
+          unzip -Z1 "$APK" | grep -q '^lib/armeabi-v7a/' || { echo 'Missing ARMv7 (32-bit) native libraries'; exit 1; }
+          unzip -Z1 "$APK" | grep -q '^lib/arm64-v8a/' || { echo 'Missing ARM64 native libraries'; exit 1; }
+          if unzip -Z1 "$APK" | grep -q '^lib/armeabi/'; then
+            echo 'Legacy ARMv6 ABI (armeabi) libraries detected.'
+          else
+            echo 'ARMv6 (armeabi) libraries are not packaged; this APK does not support ARMv6 devices.'
+          fi
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
