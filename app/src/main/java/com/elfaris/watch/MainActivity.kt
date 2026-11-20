@@ -128,8 +128,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refresh() {
-        if (store.server.isBlank()) return showConnectScreen()
-        if (store.token.isBlank()) return showActivationScreen()
+        if (store.server.isBlank() || store.token.isBlank()) return showActivationScreen()
         showLoading("Conferindo sua conta...")
         executor.execute {
             try {
@@ -170,86 +169,81 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showConnectScreen() {
-        val root = screenBase()
-        addHeader(root, "Elfaris Watch", "Seu espaço para assistir e compartilhar transmissões.")
-        val content = card(root)
-        addText(content, "Conecte o servidor", 20f, true, R.color.watch_text)
-        addText(content, "No WhatsApp da Elfi, envie transmitir app. Abra o link recebido neste celular para configurar a conexão automaticamente.", 14f, false, R.color.watch_muted)
-        val serverInput = input(content, "Endereço HTTPS do servidor")
-        serverInput.setText(store.server)
-        button(content, "Salvar conexão").setOnClickListener {
-            try {
-                store.saveServer(WatchApi.normalizeServer(serverInput.text?.toString().orEmpty()))
-                if (store.token.isNotBlank()) refresh()
-                else showActivationScreen("Servidor salvo. Agora solicite sua ativação pelo WhatsApp.")
-            } catch (error: Exception) {
-                showMessage(error.message ?: "Informe um endereço HTTPS válido.")
-            }
-        }
+        showActivationScreen("Cole aqui o link pessoal enviado pelo comando cadastro no WhatsApp. O servidor será configurado automaticamente.")
     }
 
     private fun showActivationScreen(message: String? = null) {
         val root = screenBase()
-        addHeader(root, "Sua conta", "Ative uma vez pelo WhatsApp. Seu acesso ficará salvo neste aparelho.")
+        addHeader(root, "Vincular conta", "Entre com o link pessoal que a Elfi enviou no WhatsApp.")
         val content = card(root)
-        addText(content, "Ativação segura", 20f, true, R.color.watch_text)
-        addText(content, message ?: "Envie transmitir cadastro no privado do bot Elfaris. Ele vai mandar um link pessoal de uso único. Abra esse link neste mesmo celular.", 14f, false, R.color.watch_muted)
-        addText(content, "SERVIDOR CONECTADO", 11f, true, R.color.watch_primary)
-        addText(content, store.server.ifBlank { "Nenhum servidor configurado" }, 13f, false, R.color.watch_text)
-        button(content, "Atualizar endereço do servidor", outlined = true).setOnClickListener { showConnectScreen() }
-        button(content, "Copiar endereço", outlined = true).setOnClickListener {
-            copyToClipboard("Servidor Elfaris Watch", store.server)
-        }
-        pendingActivationToken?.let { activationToken ->
-            val activationName = input(content, "Nome para seu perfil")
-            button(content, "Concluir ativação").setOnClickListener {
-                val name = activationName.text?.toString()?.trim().orEmpty()
-                if (name.isBlank()) {
-                    showMessage("Informe seu nome para concluir o cadastro.")
+        addText(content, "Adicionar link de ativação", 20f, true, R.color.watch_text)
+        addText(content, message ?: "Copie o link recebido após enviar cadastro no privado do bot e cole no campo abaixo. O app identifica o servidor e ativa sua conta automaticamente.", 14f, false, R.color.watch_muted)
+        val activationInput = input(content, "Cole o link completo recebido no WhatsApp")
+        button(content, "Vincular minha conta").setOnClickListener {
+            val raw = activationInput.text?.toString()?.trim().orEmpty()
+            if (raw.isBlank()) {
+                showMessage("Cole o link de ativação recebido no WhatsApp.")
+                return@setOnClickListener
+            }
+            try {
+                val uri = Uri.parse(raw)
+                val server: String
+                val token: String
+                if (uri.scheme == "elfariswatch" && uri.host == "activate") {
+                    server = uri.getQueryParameter("server").orEmpty()
+                    token = uri.getQueryParameter("token").orEmpty()
                 } else {
-                    activate(activationToken, name)
+                    require(uri.scheme == "https" && uri.path == "/watch/activate" && !uri.host.isNullOrBlank()) {
+                        "Esse não parece ser um link de ativação do Elfaris Watch."
+                    }
+                    server = uri.buildUpon().encodedPath("").clearQuery().fragment(null).build().toString().trimEnd('/')
+                    val fragment = uri.fragment.orEmpty()
+                    token = uri.getQueryParameter("token")
+                        ?: Uri.parse("https://activation.local/?$fragment").getQueryParameter("token").orEmpty()
                 }
+                require(token.matches(Regex("^[A-Za-z0-9_-]{40,60}$"))) {
+                    "O link não contém um token válido. Copie o link completo novamente."
+                }
+                store.saveServer(WatchApi.normalizeServer(server))
+                activate(token)
+            } catch (error: Exception) {
+                showMessage(error.message ?: "Não foi possível ler o link de ativação.")
             }
         }
-        if (store.token.isNotBlank()) {
-            button(root, "Tentar novamente").setOnClickListener { refresh() }
-        }
-        addText(root, "O link de ativação expira em 10 minutos e só pode ser usado uma vez. Não compartilhe esse link.", 13f, false, R.color.watch_muted)
+        addText(content, "O link é pessoal, de uso único e expira em 10 minutos. Depois da ativação, sua sessão fica salva neste aparelho.", 12f, false, R.color.watch_muted)
     }
 
     private fun showHome() {
         val user = account ?: return showActivationScreen()
         val root = screenBase(showNavigation = true, selectedTab = 1)
         addHeader(root, "Elfaris Watch", "Tudo pronto, ${user.name}.")
-        val accountCard = card(root)
-        addText(accountCard, "CONTA CONECTADA", 11f, true, R.color.watch_primary)
-        addText(accountCard, user.name, 22f, true, R.color.watch_text)
-        addText(accountCard, formatPhone(user.phone), 14f, false, R.color.watch_muted)
-
-        val roomCard = card(root)
-        addText(roomCard, "Entrar em uma sala", 19f, true, R.color.watch_text)
-        addText(roomCard, "Cole o link de convidado que recebeu para assistir à transmissão. O link do anfitrião também pode ser aberto pelo navegador.", 14f, false, R.color.watch_muted)
-        val roomInput = input(roomCard, "Link da sala")
+        val content = card(root)
+        addText(content, "CONTA CONECTADA", 11f, true, R.color.watch_primary)
+        addText(content, user.name, 22f, true, R.color.watch_text)
+        addText(content, formatPhone(user.phone), 14f, false, R.color.watch_muted)
+        addText(content, "Entrar em uma sala", 19f, true, R.color.watch_text)
+        addText(content, "Cole o link de convidado para transmitir sua tela ou abrir a sala no navegador.", 14f, false, R.color.watch_muted)
+        val roomInput = input(content, "Link da sala")
         val microphoneSwitch = SwitchMaterial(this).apply {
             text = "Incluir áudio do microfone"
             isChecked = store.microphoneEnabled
             setTextColor(ContextCompat.getColor(this@MainActivity, R.color.watch_text))
+            thumbTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.watch_primary))
+            trackTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.watch_outline))
             setOnCheckedChangeListener { _, checked -> store.saveMicrophoneEnabled(checked) }
         }
-        roomCard.addView(microphoneSwitch, marginParams(top = 14))
-        button(roomCard, "Entrar e transmitir tela").setOnClickListener {
+        content.addView(microphoneSwitch, marginParams(top = 14))
+        button(content, "Entrar e transmitir tela").setOnClickListener {
             beginRoomCapture(roomInput.text?.toString().orEmpty())
         }
-        button(roomCard, "Assistir no navegador", outlined = true).setOnClickListener {
+        button(content, "Assistir no navegador", outlined = true).setOnClickListener {
             openRoom(roomInput.text?.toString().orEmpty())
         }
-        button(roomCard, "Parar minha transmissão", outlined = true).setOnClickListener {
+        button(content, "Parar minha transmissão", outlined = true).setOnClickListener {
             WatchCaptureService.stop(this)
             toast("Solicitação para encerrar a transmissão enviada.")
         }
-
-        addText(root, "O áudio do microfone é opcional e precisa ser ativado antes da transmissão. O áudio interno de jogos e aplicativos ainda não é enviado.", 13f, false, R.color.watch_muted)
-        addText(root, "Para criar uma sala, use transmitir no privado do bot e compartilhe o link de convidado com quem vai assistir.", 13f, false, R.color.watch_muted)
+        addText(content, "O microfone é opcional. O áudio interno de jogos e aplicativos ainda não é enviado.", 12f, false, R.color.watch_muted)
     }
 
     private fun showProfile() {
@@ -303,8 +297,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        button(root, "Atualizar endereço do servidor", outlined = true).setOnClickListener { showConnectScreen() }
-        button(root, "Sair da conta", outlined = true).setOnClickListener { logout() }
+        button(content, "Sair da conta", outlined = true).setOnClickListener { logout() }
     }
 
     private fun logout() {
@@ -404,6 +397,15 @@ class MainActivity : AppCompatActivity() {
                 menu.add(0, 1, 0, "Início").setIcon(R.drawable.ic_home)
                 menu.add(0, 2, 1, "Perfil").setIcon(R.drawable.ic_profile)
                 selectedItemId = selectedTab
+                setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.watch_surface))
+                itemIconTintList = android.content.res.ColorStateList(
+                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(
+                        ContextCompat.getColor(this@MainActivity, R.color.watch_primary),
+                        ContextCompat.getColor(this@MainActivity, R.color.watch_muted)
+                    )
+                )
+                itemTextColor = itemIconTintList
                 setOnItemSelectedListener { item ->
                     when (item.itemId) {
                         1 -> { if (selectedTab != 1) showHome(); true }
@@ -452,7 +454,9 @@ class MainActivity : AppCompatActivity() {
         val wrapper = TextInputLayout(this).apply {
             this.hint = hint
             boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            boxStrokeColor = ContextCompat.getColor(this@MainActivity, R.color.watch_outline)
+            boxStrokeColor = ContextCompat.getColor(this@MainActivity, R.color.watch_primary)
+            boxBackgroundColor = ContextCompat.getColor(this@MainActivity, R.color.watch_surface_variant)
+            setHintTextColor(ContextCompat.getColor(this@MainActivity, R.color.watch_muted))
             setBoxCornerRadii(dp(12).toFloat(), dp(12).toFloat(), dp(12).toFloat(), dp(12).toFloat())
         }
         val edit = TextInputEditText(wrapper.context).apply {
