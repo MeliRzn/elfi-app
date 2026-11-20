@@ -3,6 +3,13 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val appVersionName = providers.gradleProperty("versionName").orElse("1.1.0").get()
+val appVersionParts = appVersionName.split(".").map { it.toIntOrNull() ?: -1 }
+require(appVersionParts.size == 3 && appVersionParts.all { it in 0..99 }) {
+    "versionName must use MAJOR.MINOR.PATCH with numeric values from 0 to 99."
+}
+val appVersionCode = appVersionParts.fold(0) { code, part -> code * 100 + part }
+
 android {
     namespace = "com.elfaris.watch"
     compileSdk = 35
@@ -11,8 +18,8 @@ android {
         applicationId = "com.elfaris.watch"
         minSdk = 21
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
         ndk {
             abiFilters += setOf("armeabi-v7a", "arm64-v8a")
         }
