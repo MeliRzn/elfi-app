@@ -16,20 +16,6 @@ class AppUpdater(private val activity: MainActivity) {
     private val http = OkHttpClient()
 
     fun checkForUpdate(executor: Executor, notify: (String) -> Unit) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
-            activity.runOnUiThread {
-                AlertDialog.Builder(activity)
-                    .setTitle("Permitir atualização")
-                    .setMessage("O Android precisa permitir que o Elfaris Watch instale atualizações baixadas por este aplicativo.")
-                    .setNegativeButton("Agora não", null)
-                    .setPositiveButton("Abrir configuração") { _, _ ->
-                        activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
-                    }
-                    .show()
-            }
-            return
-        }
-
         notify("Verificando atualizações...")
         executor.execute {
             try {
@@ -46,6 +32,20 @@ class AppUpdater(private val activity: MainActivity) {
                 if (tag.isBlank()) error("A versão publicada não possui uma identificação válida.")
                 if (compareVersions(tag, BuildConfig.VERSION_NAME) <= 0) {
                     activity.runOnUiThread { notify("O Elfaris Watch já está atualizado.") }
+                    return@execute
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
+                    activity.runOnUiThread {
+                        AlertDialog.Builder(activity)
+                            .setTitle("Permitir atualização")
+                            .setMessage("Existe uma nova versão. O Android precisa permitir que o Elfaris Watch instale o APK baixado.")
+                            .setNegativeButton("Agora não", null)
+                            .setPositiveButton("Abrir configuração") { _, _ ->
+                                activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
+                            }
+                            .show()
+                    }
                     return@execute
                 }
                 val assets = release.optJSONArray("assets") ?: error("A versão não possui APK anexado.")
