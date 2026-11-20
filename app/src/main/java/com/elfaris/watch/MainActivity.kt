@@ -362,7 +362,7 @@ class MainActivity : AppCompatActivity() {
             require(uri.scheme == "https" && uri.authority == serverUri.authority &&
                 uri.path.orEmpty().matches(Regex("^/watch/[A-Za-z0-9_-]{8,}$")) &&
                 uri.getQueryParameter("host").isNullOrBlank()) {
-                "Use o link HTTPS de convidado recebido do Elfaris Watch. Não use o painel do anfitrião."
+                "Use o link HTTPS compartilhável gerado pelo comando transmitir app."
             }
             pendingRoomUrl = uri.toString()
             if (store.microphoneEnabled && ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
