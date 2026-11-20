@@ -250,6 +250,11 @@ class WatchCaptureService : Service() {
         eglBase?.release()
         eglBase = null
         worker.shutdownNow()
+        sendBroadcast(
+            Intent(ACTION_CAPTURE_STOPPED)
+                .setPackage(packageName)
+                .putExtra(EXTRA_STATUS, "Sua transmissão foi encerrada.")
+        )
         super.onDestroy()
     }
 
@@ -260,6 +265,8 @@ class WatchCaptureService : Service() {
         private const val NOTIFICATION_ID = 7301
         const val ACTION_START = "com.elfaris.watch.action.START_CAPTURE"
         const val ACTION_STOP = "com.elfaris.watch.action.STOP_CAPTURE"
+        const val ACTION_CAPTURE_STOPPED = "com.elfaris.watch.action.CAPTURE_STOPPED"
+        const val EXTRA_STATUS = "status"
         const val EXTRA_SERVER = "server"
         const val EXTRA_ROOM_URL = "room_url"
         const val EXTRA_NAME = "name"
