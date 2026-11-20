@@ -24,15 +24,29 @@ O GitHub Actions compila automaticamente o APK Debug em cada push na branch `mai
 - A CI inspeciona o APK final e falha se qualquer uma dessas arquiteturas estiver ausente nas bibliotecas nativas.
 - ARMv6 (`armeabi`) não é incluído pela configuração atual e não pode ser considerado compatível com o WebRTC nativo atual. Só anunciar suporte após existir uma dependência WebRTC compilada para ARMv6 e validar o app em aparelho real.
 
-O APK fica em **Actions → Elfaris Watch Android → Artifacts → elfaris-watch-debug**.
+O APK de teste fica em **Actions → Elfaris Watch Android → Artifacts → elfaris-watch-debug**.
+
+### Atualizações pelo aplicativo
+
+As versões instaláveis são publicadas como GitHub Releases com o asset **elfaris-watch.apk**. O botão de atualização consulta a última release, baixa o APK e abre o instalador do Android. O usuário confirma a instalação; o Android não permite instalação silenciosa comum.
+
+Para publicar uma release assinada, configure os segredos do repositório:
+- `ANDROID_KEYSTORE_BASE64`: keystore de release codificado em Base64.
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
+Depois, crie e envie uma tag no formato `v1.1.0`. **Nunca troque nem perca o keystore de release**, pois futuras versões precisam usar exatamente a mesma chave para atualizar instalações existentes sem desinstalar.
 
 ## Recursos
 
 - Ativação e recuperação de acesso por link pessoal do WhatsApp.
 - Sessão persistente e perfil com avatar.
-- Interface em tema escuro, com telas de entrada em layout único.
+- Interface em tema escuro, com Home separada da tela exclusiva da sala.
+- Sala nativa com prévia local da tela compartilhada, status de transmissão e lista de participantes em tempo real.
 - Entrada em salas por link compartilhável, com transmissão Android P2P direta para cada espectador.
 - Captura de tela nativa usando MediaProjection.
+- Verificação e instalação de atualizações pelo botão **Verificar atualizações** na Home.
 - Publicação WebRTC com áudio opcional do microfone.
 - Espectadores podem assistir pelo site.
 
