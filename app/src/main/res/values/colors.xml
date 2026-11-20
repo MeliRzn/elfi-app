@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="watch_background">#0B0F0C</color>
-    <color name="watch_surface">#121A15</color>
-    <color name="watch_surface_variant">#1A2820</color>
-    <color name="watch_primary">#A6E8B7</color>
-    <color name="watch_on_primary">#102016</color>
-    <color name="watch_text">#F3F7F4</color>
-    <color name="watch_muted">#A9B8AE</color>
-    <color name="watch_outline">#2A3B30</color>
+    <color name="watch_background">#090A0F</color>
+    <color name="watch_surface">#11131B</color>
+    <color name="watch_surface_variant">#1A1D29</color>
+    <color name="watch_primary">#8B83FF</color>
+    <color name="watch_on_primary">#FFFFFF</color>
+    <color name="watch_text">#F4F4FA</color>
+    <color name="watch_muted">#A2A3B3</color>
+    <color name="watch_outline">#303244</color>
 </resources>
