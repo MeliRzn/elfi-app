@@ -24,7 +24,6 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
-import com.google.android.material.switchmaterial.SwitchMaterial
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 
@@ -182,42 +181,18 @@ class MainActivity : AppCompatActivity() {
         addText(content, "O link é pessoal, de uso único e expira em 10 minutos. Depois da ativação, sua sessão fica salva neste aparelho.", 12f, false, R.color.watch_muted)
     }
 
-    private fun showHome(isSharing: Boolean = false) {
-        showingSharingScreen = isSharing
+    private fun showHome() {
         val user = account ?: return showActivationScreen()
         val root = screenBase(showNavigation = true, selectedTab = 1)
-        addHeader(
-            root,
-            if (isSharing) "Você está na sala" else "Elfaris Watch",
-            if (isSharing) "Sua transmissão está ativa e disponível para os participantes." else "Olá, ${user.name}. Entre em uma sala compartilhada."
-        )
+        addHeader(root, "Elfaris Watch", "Olá, ${user.name}. Entre em uma sala compartilhada.")
         val content = card(root)
-        if (isSharing) {
-            addText(content, "Transmissão ativa", 19f, true, R.color.watch_text)
-            addText(content, "Sua tela está sendo enviada diretamente aos outros participantes. Você pode encerrar sua transmissão a qualquer momento.", 14f, false, R.color.watch_muted)
-            button(content, "Parar minha transmissão").setOnClickListener {
-                WatchCaptureService.stop(this)
-                showHome(isSharing = false)
-                toast("Encerrando sua transmissão.")
-            }
-        } else {
-            addText(content, "Entrar em uma sala", 19f, true, R.color.watch_text)
-            addText(content, "Cole o link compartilhável enviado pelo WhatsApp. Qualquer pessoa com o link pode participar.", 14f, false, R.color.watch_muted)
-            val roomInput = input(content, "Link da sala")
-            val microphoneSwitch = SwitchMaterial(this).apply {
-                text = "Incluir áudio do microfone"
-                isChecked = store.microphoneEnabled
-                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.watch_text))
-                thumbTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.watch_primary))
-                trackTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.watch_outline))
-                setOnCheckedChangeListener { _, checked -> store.saveMicrophoneEnabled(checked) }
-            }
-            content.addView(microphoneSwitch, marginParams(top = 14))
-            button(content, "Entrar na sala").setOnClickListener {
-                openNativeRoom(roomInput.text?.toString().orEmpty())
-            }
-            addText(content, "Você pode entrar para assistir. A opção de compartilhar tela ficará disponível dentro da sala.", 12f, false, R.color.watch_muted)
+        addText(content, "Entrar em uma sala", 19f, true, R.color.watch_text)
+        addText(content, "Cole o link compartilhável enviado pelo WhatsApp. Você pode entrar apenas para assistir.", 14f, false, R.color.watch_muted)
+        val roomInput = input(content, "Link da sala")
+        button(content, "Entrar na sala").setOnClickListener {
+            openNativeRoom(roomInput.text?.toString().orEmpty())
         }
+        addText(content, "O botão de compartilhar tela aparece somente depois que você entrar na sala.", 12f, false, R.color.watch_muted)
         button(content, "Verificar atualizações", outlined = true).setOnClickListener {
             AppUpdater(this).checkForUpdate(executor, ::showMessage)
         }
@@ -304,7 +279,6 @@ class MainActivity : AppCompatActivity() {
                 putExtra(WatchCaptureService.EXTRA_SERVER, store.server)
                 putExtra(WatchCaptureService.EXTRA_ROOM_URL, uri.toString())
                 putExtra(WatchCaptureService.EXTRA_NAME, account?.name ?: "Convidado")
-                putExtra(WatchCaptureService.EXTRA_MICROPHONE, store.microphoneEnabled)
             })
         } catch (error: Exception) {
             showMessage(error.message ?: "Link de sala inválido.")
