@@ -15,13 +15,14 @@ import org.webrtc.SessionDescription
 import org.webrtc.AudioTrack
 import org.webrtc.VideoTrack
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Native guest/presenter client for the existing Watch signaling protocol.
- * The host browser remains the relay for other guests, so no second room server is needed.
+ * Native presenter client. Every viewer receives a direct WebRTC connection;
+ * no browser or participant is used as a relay/room owner.
  */
 class WatchRoomClient(
     private val server: String,
@@ -31,6 +32,11 @@ class WatchRoomClient(
     private val onStatus: (String) -> Unit,
     private val onFatal: () -> Unit = {}
 ) {
+    private data class PeerLink(
+        val connection: PeerConnection,
+        val pendingIce: MutableList<IceCandidate> = mutableListOf()
+    )
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(18, TimeUnit.SECONDS)
@@ -39,17 +45,20 @@ class WatchRoomClient(
     private val eventsHttp = http.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build()
     private val network = Executors.newSingleThreadExecutor()
     private val closed = AtomicBoolean(false)
-    private val lifecycleLock = Any()
+    private val links = ConcurrentHashMap<String, PeerLink>()
     @Volatile private var eventsCall: okhttp3.Call? = null
     @Volatile private var activeRequest: okhttp3.Call? = null
-    @Volatile private var peerConnection: PeerConnection? = null
     @Volatile private var roomId = ""
     @Volatile private var peerId = ""
     @Volatile private var peerToken = ""
     @Volatile private var active = false
-    private val pendingRemoteIce = mutableListOf<IceCandidate>()
+    @Volatile private var iceServers: List<PeerConnection.IceServer> = emptyList()
+    @Volatile private var localVideo: VideoTrack? = null
+    @Volatile private var localAudio: AudioTrack? = null
 
     fun start(videoTrack: VideoTrack, audioTrack: AudioTrack?) {
+        localVideo = videoTrack
+        localAudio = audioTrack
         network.execute {
             try {
                 val roomUri = Uri.parse(roomUrl)
@@ -58,71 +67,29 @@ class WatchRoomClient(
                     "O link da sala pertence a outro servidor. Atualize a conexão pelo WhatsApp."
                 }
                 require(roomUri.scheme == "https" && roomUri.path.orEmpty().matches(Regex("^/watch/[A-Za-z0-9_-]{8,}$"))) {
-                    "Cole o link de convidado de uma sala Elfaris Watch."
+                    "Cole um link HTTPS válido de uma sala Elfaris Watch."
                 }
                 require(roomUri.getQueryParameter("host").isNullOrBlank()) {
-                    "Use o link de convidado, não o painel privado do anfitrião."
+                    "Este link ainda usa o formato antigo. Gere outro com transmitir app."
                 }
                 roomId = roomUri.lastPathSegment.orEmpty()
                 val joined = post("join", JSONObject().put("name", displayName))
                 peerId = joined.getString("peerId")
                 peerToken = joined.getString("token")
                 if (closed.get()) return@execute
-
-                val currentPresenter = joined.optString("activePresenter")
-                if (currentPresenter.isNotBlank() && currentPresenter != "null") {
-                    throw IOException("Outra pessoa já está transmitindo nesta sala.")
-                }
-
-                val iceServers = parseIceServers(joined.optJSONArray("iceServers"))
-                val observer = createObserver()
-                val connection = synchronized(lifecycleLock) {
-                    if (closed.get()) return@execute
-                    val created = factory.createPeerConnection(PeerConnection.RTCConfiguration(iceServers), observer)
-                        ?: throw IOException("Não foi possível criar a conexão WebRTC.")
-                    peerConnection = created
-                    created
-                }
-                synchronized(lifecycleLock) {
-                    if (closed.get()) return@execute
-                    connection.addTrack(videoTrack, listOf("elfaris-watch"))
-                    if (audioTrack != null) connection.addTrack(audioTrack, listOf("elfaris-watch"))
-                }
-
-                connectEvents()
-                post("share", JSONObject().put("token", peerToken).put("peerId", peerId).put("active", true))
+                iceServers = parseIceServers(joined.optJSONArray("iceServers"))
+                post("share", auth().put("active", true))
                 active = true
-
-                synchronized(lifecycleLock) {
-                    if (closed.get()) return@execute
-                    connection.createOffer(object : SdpObserver {
-                        override fun onCreateSuccess(description: SessionDescription) {
-                            synchronized(lifecycleLock) {
-                                if (closed.get()) return
-                                connection.setLocalDescription(object : SdpObserver {
-                                    override fun onSetSuccess() {
-                                        val local = synchronized(lifecycleLock) {
-                                            if (closed.get()) return
-                                            connection.localDescription ?: return fail("Não foi possível preparar a transmissão.")
-                                        }
-                                        try {
-                                            sendSignal("offer", JSONObject().put("type", local.type.canonicalForm()).put("sdp", local.description))
-                                            onStatus("Conectando à sala...")
-                                        } catch (error: Exception) {
-                                            fail(error.message ?: "Falha ao enviar a oferta WebRTC.")
-                                        }
-                                    }
-                                    override fun onSetFailure(error: String) = fail(error)
-                                    override fun onCreateSuccess(description: SessionDescription) = Unit
-                                    override fun onCreateFailure(error: String) = Unit
-                                }, description)
-                            }
-                        }
-                        override fun onSetSuccess() = Unit
-                        override fun onCreateFailure(error: String) = fail(error)
-                        override fun onSetFailure(error: String) = fail(error)
-                    }, org.webrtc.MediaConstraints())
+                connectEvents()
+                val existing = joined.optJSONArray("participants")
+                if (existing != null) {
+                    for (index in 0 until existing.length()) {
+                        val item = existing.optJSONObject(index) ?: continue
+                        val id = item.optString("id")
+                        if (id.isNotBlank() && id != peerId) createViewerConnection(id)
+                    }
                 }
+                onStatus("Na sala. Sua tela está sendo compartilhada com os participantes.")
             } catch (error: Exception) {
                 onStatus(error.message ?: "Não foi possível entrar na sala.")
                 stop()
@@ -131,27 +98,63 @@ class WatchRoomClient(
         }
     }
 
-    private fun createObserver() = object : PeerConnection.Observer {
+    private fun auth(): JSONObject = JSONObject()
+        .put("peerId", peerId)
+        .put("token", peerToken)
+
+    private fun createViewerConnection(viewerId: String) {
+        if (closed.get() || !active || links.containsKey(viewerId)) return
+        try {
+            val observer = createObserver(viewerId)
+            val connection = factory.createPeerConnection(PeerConnection.RTCConfiguration(iceServers), observer)
+                ?: throw IOException("Não foi possível criar a conexão WebRTC.")
+            val link = PeerLink(connection)
+            links[viewerId] = link
+            localVideo?.let { connection.addTrack(it, listOf("elfaris-watch")) }
+            localAudio?.let { connection.addTrack(it, listOf("elfaris-watch")) }
+            connection.createOffer(object : SdpObserver {
+                override fun onCreateSuccess(description: SessionDescription) {
+                    if (closed.get()) return
+                    connection.setLocalDescription(object : SdpObserver {
+                        override fun onSetSuccess() {
+                            if (closed.get()) return
+                            val local = connection.localDescription ?: return fail("Não foi possível preparar a transmissão.")
+                            sendSignal(viewerId, "offer", JSONObject()
+                                .put("type", local.type.canonicalForm())
+                                .put("sdp", local.description))
+                        }
+                        override fun onSetFailure(error: String) = fail(error)
+                        override fun onCreateSuccess(description: SessionDescription) = Unit
+                        override fun onCreateFailure(error: String) = Unit
+                    }, description)
+                }
+                override fun onSetSuccess() = Unit
+                override fun onCreateFailure(error: String) = fail(error)
+                override fun onSetFailure(error: String) = fail(error)
+            }, org.webrtc.MediaConstraints())
+        } catch (error: Exception) {
+            onStatus(error.message ?: "Não foi possível conectar um participante.")
+        }
+    }
+
+    private fun createObserver(remoteId: String) = object : PeerConnection.Observer {
         override fun onSignalingChange(state: PeerConnection.SignalingState) = Unit
         override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
             when (state) {
                 PeerConnection.IceConnectionState.CONNECTED,
-                PeerConnection.IceConnectionState.COMPLETED -> onStatus("Sua tela está sendo transmitida.")
-                PeerConnection.IceConnectionState.FAILED -> fail("A conexão com a sala falhou. Verifique sua rede ou o servidor TURN.")
-                PeerConnection.IceConnectionState.DISCONNECTED -> onStatus("Conexão instável. Tentando reconectar...")
+                PeerConnection.IceConnectionState.COMPLETED -> onStatus("Transmissão conectada a um participante.")
+                PeerConnection.IceConnectionState.FAILED -> onStatus("Uma conexão falhou. Verifique a rede ou o servidor TURN.")
+                PeerConnection.IceConnectionState.DISCONNECTED -> onStatus("Conexão instável. Tentando recuperar...")
                 else -> Unit
             }
         }
         override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
         override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) = Unit
         override fun onIceCandidate(candidate: IceCandidate) {
-            val payload = JSONObject()
+            sendSignal(remoteId, "ice", JSONObject()
                 .put("candidate", candidate.sdp)
                 .put("sdpMid", candidate.sdpMid)
-                .put("sdpMLineIndex", candidate.sdpMLineIndex)
-            try { sendSignal("ice", payload) } catch (error: Exception) {
-                onStatus(error.message ?: "Falha ao enviar candidato ICE.")
-            }
+                .put("sdpMLineIndex", candidate.sdpMLineIndex))
         }
         override fun onIceCandidatesRemoved(candidates: Array<IceCandidate>) = Unit
         override fun onAddStream(stream: org.webrtc.MediaStream) = Unit
@@ -162,7 +165,7 @@ class WatchRoomClient(
 
     private fun connectEvents() {
         val url = server.trimEnd('/') + "/watch/api/" + roomId +
-            "/events?role=guest&peer=" + Uri.encode(peerId) + "&token=" + Uri.encode(peerToken)
+            "/events?peer=" + Uri.encode(peerId) + "&token=" + Uri.encode(peerToken)
         val request = Request.Builder().url(url).header("Accept", "text/event-stream").get().build()
         Thread({
             while (!closed.get()) {
@@ -176,10 +179,7 @@ class WatchRoomClient(
                     call.execute().use { response ->
                         if (!response.isSuccessful) {
                             val message = response.body?.string().orEmpty()
-                            throw EventStreamException(
-                                response.code,
-                                message.ifBlank { "A sala encerrou ou o link de participante expirou." }
-                            )
+                            throw EventStreamException(response.code, message.ifBlank { "A sala encerrou ou o acesso expirou." })
                         }
                         val source = response.body?.source() ?: throw IOException("Conexão de eventos vazia.")
                         var eventName = ""
@@ -195,7 +195,7 @@ class WatchRoomClient(
                             } else if (line.startsWith("event:")) {
                                 eventName = line.substringAfter(':').trim()
                             } else if (line.startsWith("data:")) {
-                                if (data.isNotEmpty()) data.append('\n')
+                                if (data.isNotEmpty()) data.append('\\n')
                                 data.append(line.substringAfter(':').trimStart())
                             }
                         }
@@ -217,8 +217,28 @@ class WatchRoomClient(
 
     private fun handleEvent(event: String, raw: String) {
         when (event) {
+            "state" -> {
+                val state = JSONObject(raw)
+                val participants = state.optJSONArray("participants") ?: return
+                for (index in 0 until participants.length()) {
+                    val item = participants.optJSONObject(index) ?: continue
+                    val id = item.optString("id")
+                    if (id.isNotBlank() && id != peerId) createViewerConnection(id)
+                }
+            }
+            "participant-joined" -> {
+                val item = JSONObject(raw)
+                val id = item.optString("peerId")
+                if (id.isNotBlank()) createViewerConnection(id)
+            }
+            "participant-left" -> {
+                val item = JSONObject(raw)
+                links.remove(item.optString("peerId"))?.let { closeLink(it) }
+            }
             "signal" -> {
                 val data = JSONObject(raw)
+                val from = data.optString("from")
+                val link = links[from] ?: return
                 when (data.optString("type")) {
                     "answer" -> {
                         val payload = data.getJSONObject("payload")
@@ -226,47 +246,28 @@ class WatchRoomClient(
                             SessionDescription.Type.fromCanonicalForm(payload.getString("type")),
                             payload.getString("sdp")
                         )
-                        synchronized(lifecycleLock) {
-                            if (closed.get()) return
-                            val current = peerConnection ?: return
-                            current.setRemoteDescription(object : SdpObserver {
-                                override fun onSetSuccess() {
-                                    synchronized(lifecycleLock) {
-                                        if (closed.get()) return
-                                        val pending = synchronized(pendingRemoteIce) {
-                                            pendingRemoteIce.toList().also { pendingRemoteIce.clear() }
-                                        }
-                                        pending.forEach { current.addIceCandidate(it) }
-                                    }
-                                    onStatus("Conectado. Sua tela está sendo transmitida.")
+                        link.connection.setRemoteDescription(object : SdpObserver {
+                            override fun onSetSuccess() {
+                                synchronized(link.pendingIce) {
+                                    link.pendingIce.forEach { link.connection.addIceCandidate(it) }
+                                    link.pendingIce.clear()
                                 }
-                                override fun onSetFailure(error: String) = fail(error)
-                                override fun onCreateSuccess(description: SessionDescription) = Unit
-                                override fun onCreateFailure(error: String) = Unit
-                            }, description)
-                        }
+                            }
+                            override fun onSetFailure(error: String) = onStatus(error)
+                            override fun onCreateSuccess(description: SessionDescription) = Unit
+                            override fun onCreateFailure(error: String) = Unit
+                        }, description)
                     }
                     "ice" -> {
                         val payload = data.getJSONObject("payload")
-                        val candidate = IceCandidate(
-                            payload.optString("sdpMid"),
-                            payload.optInt("sdpMLineIndex"),
-                            payload.getString("candidate")
-                        )
-                        synchronized(lifecycleLock) {
-                            if (closed.get()) return
-                            val connection = peerConnection ?: return
-                            if (connection.remoteDescription != null) {
-                                connection.addIceCandidate(candidate)
-                            } else {
-                                synchronized(pendingRemoteIce) { pendingRemoteIce.add(candidate) }
-                            }
-                        }
+                        val candidate = IceCandidate(payload.optString("sdpMid"), payload.optInt("sdpMLineIndex"), payload.getString("candidate"))
+                        if (link.connection.remoteDescription != null) link.connection.addIceCandidate(candidate)
+                        else synchronized(link.pendingIce) { link.pendingIce.add(candidate) }
                     }
                 }
             }
             "room-ended" -> {
-                onStatus("O anfitrião encerrou a sala.")
+                onStatus(JSONObject(raw).optString("reason").ifBlank { "A sala foi encerrada." })
                 stop()
                 onFatal()
             }
@@ -321,19 +322,20 @@ class WatchRoomClient(
         }
     }
 
-    private fun sendSignal(type: String, payload: JSONObject) {
+    private fun sendSignal(to: String, type: String, payload: JSONObject) {
         if (closed.get()) return
-        val body = JSONObject()
-            .put("from", peerId)
-            .put("to", "host")
-            .put("type", type)
-            .put("payload", payload)
-            .put("token", peerToken)
         network.execute {
-            try { post("signal", body) } catch (error: Exception) {
-                if (!closed.get()) fail(error.message ?: "Falha na sinalização WebRTC.")
+            try {
+                post("signal", auth().put("to", to).put("type", type).put("payload", payload))
+            } catch (error: Exception) {
+                if (!closed.get()) onStatus(error.message ?: "Falha na sinalização WebRTC.")
             }
         }
+    }
+
+    private fun closeLink(link: PeerLink) {
+        runCatching { link.connection.close() }
+        runCatching { link.connection.dispose() }
     }
 
     private fun fail(message: String) {
@@ -359,19 +361,15 @@ class WatchRoomClient(
         val currentToken = peerToken
         val wasActive = active
         active = false
-        synchronized(lifecycleLock) {
-            val connection = peerConnection
-            peerConnection = null
-            runCatching { connection?.close() }
-            runCatching { connection?.dispose() }
-        }
+        links.values.forEach(::closeLink)
+        links.clear()
+        localVideo = null
+        localAudio = null
         network.shutdownNow()
         Thread({
             if (currentRoom.isNotBlank() && currentPeer.isNotBlank() && currentToken.isNotBlank()) {
-                if (wasActive) {
-                    runCatching {
-                        post("share", JSONObject().put("token", currentToken).put("peerId", currentPeer).put("active", false))
-                    }
+                if (wasActive) runCatching {
+                    post("share", JSONObject().put("peerId", currentPeer).put("token", currentToken).put("active", false))
                 }
                 runCatching {
                     post("leave", JSONObject().put("peerId", currentPeer).put("token", currentToken))
