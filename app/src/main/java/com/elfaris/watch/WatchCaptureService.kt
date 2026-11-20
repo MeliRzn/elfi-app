@@ -53,6 +53,7 @@ class WatchCaptureService : Service() {
             return START_NOT_STICKY
         }
         started = true
+        isCaptureActive = true
         val includeMicrophone = intent.getBooleanExtra(EXTRA_MICROPHONE, false)
         startForegroundCompat(includeMicrophone)
         val server = intent.getStringExtra(EXTRA_SERVER).orEmpty()
@@ -211,6 +212,7 @@ class WatchCaptureService : Service() {
     private fun stopCapture() {
         if (stopped) return
         stopped = true
+        isCaptureActive = false
         roomClient?.stop()
         roomClient = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -267,6 +269,8 @@ class WatchCaptureService : Service() {
         private const val RESULT_OK = -1
         private val WEBRTC_LOCK = Any()
         @Volatile private var webRtcInitialized = false
+        @Volatile var isCaptureActive = false
+            private set
 
         fun stop(context: android.content.Context) {
             context.startService(Intent(context, WatchCaptureService::class.java).setAction(ACTION_STOP))
