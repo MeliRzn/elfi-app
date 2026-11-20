@@ -117,6 +117,9 @@ class WatchCaptureService : Service() {
                 onRemoteVideoCleared = {
                     previewTrack = null
                     sendBroadcast(Intent(ACTION_PREVIEW_CLEARED).setPackage(packageName))
+                },
+                onJoined = {
+                    sendBroadcast(Intent(ACTION_ROOM_JOINED).setPackage(packageName))
                 }
             )
             roomClient!!.start()
@@ -296,6 +299,7 @@ class WatchCaptureService : Service() {
         const val ACTION_PREVIEW_CLEARED = "com.elfaris.watch.action.PREVIEW_CLEARED"
         const val ACTION_ROOM_PARTICIPANTS = "com.elfaris.watch.action.ROOM_PARTICIPANTS"
         const val ACTION_ROOM_STATUS = "com.elfaris.watch.action.ROOM_STATUS"
+        const val ACTION_ROOM_JOINED = "com.elfaris.watch.action.ROOM_JOINED"
         const val ACTION_ROOM_ERROR = "com.elfaris.watch.action.ROOM_ERROR"
         const val ACTION_ROOM_LEFT = "com.elfaris.watch.action.ROOM_LEFT"
         const val EXTRA_PARTICIPANTS = "participants"
