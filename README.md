@@ -20,7 +20,9 @@ O GitHub Actions compila automaticamente o APK Debug em cada push na branch `mai
 - Android minSdk 21
 - Java 17
 - Gradle 8.9
-- ABIs: armeabi-v7a e arm64-v8a
+- ABIs solicitadas ao Gradle: `armeabi-v7a` (ARMv7 32-bit) e `arm64-v8a` (ARM64).
+- A CI inspeciona o APK final e falha se qualquer uma dessas arquiteturas estiver ausente nas bibliotecas nativas.
+- ARMv6 (`armeabi`) não é incluído pela configuração atual e não pode ser considerado compatível com o WebRTC nativo atual. Só anunciar suporte após existir uma dependência WebRTC compilada para ARMv6 e validar o app em aparelho real.
 
 O APK fica em **Actions → Elfaris Watch Android → Artifacts → elfaris-watch-debug**.
 
