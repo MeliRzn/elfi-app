@@ -65,7 +65,8 @@ class MainActivity : AppCompatActivity() {
             putExtra(WatchCaptureService.EXTRA_MICROPHONE, includeMicrophone)
         }
         ContextCompat.startForegroundService(this, serviceIntent)
-        toast(if (includeMicrophone) "Iniciando transmissão com microfone." else "Iniciando transmissão sem microfone.")
+        showHome(isSharing = true)
+        toast(if (includeMicrophone) "Entrando na sala e iniciando a transmissão." else "Entrando na sala e iniciando a transmissão sem microfone.")
     }
 
     private val imagePicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -214,35 +215,41 @@ class MainActivity : AppCompatActivity() {
         addText(content, "O link é pessoal, de uso único e expira em 10 minutos. Depois da ativação, sua sessão fica salva neste aparelho.", 12f, false, R.color.watch_muted)
     }
 
-    private fun showHome() {
+    private fun showHome(isSharing: Boolean = WatchCaptureService.isCaptureActive) {
         val user = account ?: return showActivationScreen()
         val root = screenBase(showNavigation = true, selectedTab = 1)
-        addHeader(root, "Elfaris Watch", "Olá, ${user.name}. Sua conta está pronta.")
+        addHeader(
+            root,
+            if (isSharing) "Você está na sala" else "Elfaris Watch",
+            if (isSharing) "Sua transmissão está ativa e disponível para os participantes." else "Olá, ${user.name}. Entre em uma sala compartilhada."
+        )
         val content = card(root)
-        addText(content, "Entrar em uma sala", 19f, true, R.color.watch_text)
-        addText(content, formatPhone(user.phone), 13f, false, R.color.watch_muted)
-        addText(content, "Cole o link de convidado para transmitir sua tela ou abrir a sala no navegador.", 14f, false, R.color.watch_muted)
-        val roomInput = input(content, "Link da sala")
-        val microphoneSwitch = SwitchMaterial(this).apply {
-            text = "Incluir áudio do microfone"
-            isChecked = store.microphoneEnabled
-            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.watch_text))
-            thumbTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.watch_primary))
-            trackTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.watch_outline))
-            setOnCheckedChangeListener { _, checked -> store.saveMicrophoneEnabled(checked) }
+        if (isSharing) {
+            addText(content, "Transmissão ativa", 19f, true, R.color.watch_text)
+            addText(content, "Sua tela está sendo enviada diretamente aos outros participantes. Você pode encerrar sua transmissão a qualquer momento.", 14f, false, R.color.watch_muted)
+            button(content, "Parar minha transmissão").setOnClickListener {
+                WatchCaptureService.stop(this)
+                showHome(isSharing = false)
+                toast("Encerrando sua transmissão.")
+            }
+        } else {
+            addText(content, "Entrar em uma sala", 19f, true, R.color.watch_text)
+            addText(content, "Cole o link compartilhável enviado pelo WhatsApp. Qualquer pessoa com o link pode participar.", 14f, false, R.color.watch_muted)
+            val roomInput = input(content, "Link da sala")
+            val microphoneSwitch = SwitchMaterial(this).apply {
+                text = "Incluir áudio do microfone"
+                isChecked = store.microphoneEnabled
+                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.watch_text))
+                thumbTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.watch_primary))
+                trackTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.watch_outline))
+                setOnCheckedChangeListener { _, checked -> store.saveMicrophoneEnabled(checked) }
+            }
+            content.addView(microphoneSwitch, marginParams(top = 14))
+            button(content, "Entrar na sala e compartilhar tela").setOnClickListener {
+                beginRoomCapture(roomInput.text?.toString().orEmpty())
+            }
+            addText(content, "O compartilhamento começa após a confirmação do Android. O microfone é opcional.", 12f, false, R.color.watch_muted)
         }
-        content.addView(microphoneSwitch, marginParams(top = 14))
-        button(content, "Entrar e transmitir tela").setOnClickListener {
-            beginRoomCapture(roomInput.text?.toString().orEmpty())
-        }
-        button(content, "Assistir no navegador", outlined = true).setOnClickListener {
-            openRoom(roomInput.text?.toString().orEmpty())
-        }
-        button(content, "Parar minha transmissão", outlined = true).setOnClickListener {
-            WatchCaptureService.stop(this)
-            toast("Solicitação para encerrar a transmissão enviada.")
-        }
-        addText(content, "O microfone é opcional. O áudio interno de jogos e aplicativos ainda não é enviado.", 12f, false, R.color.watch_muted)
     }
 
     private fun showProfile() {
