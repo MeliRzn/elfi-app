@@ -131,12 +131,24 @@ class WatchCaptureService : Service() {
         }
 
         if (stopped) return
+        previewTrack = videoTrack
+        previewEglContext = eglBase!!.eglBaseContext
+        sendBroadcast(Intent(ACTION_PREVIEW_READY).setPackage(packageName))
         roomClient = WatchRoomClient(
             server,
             roomUrl,
             name,
             factory!!,
             onStatus = { status -> updateNotification(status) },
+            onParticipants = { participants ->
+                val payload = org.json.JSONArray()
+                participants.forEach(payload::put)
+                sendBroadcast(
+                    Intent(ACTION_ROOM_PARTICIPANTS)
+                        .setPackage(packageName)
+                        .putExtra(EXTRA_PARTICIPANTS, payload.toString())
+                )
+            },
             onFatal = { stopCapture() }
         )
         roomClient!!.start(videoTrack!!, audioTrack)
@@ -230,6 +242,8 @@ class WatchCaptureService : Service() {
         isCaptureActive = false
         roomClient?.stop()
         roomClient = null
+        previewTrack = null
+        previewEglContext = null
         runCatching { screenCapturer?.stopCapture() }
         runCatching { screenCapturer?.dispose() }
         screenCapturer = null
@@ -266,6 +280,9 @@ class WatchCaptureService : Service() {
         const val ACTION_START = "com.elfaris.watch.action.START_CAPTURE"
         const val ACTION_STOP = "com.elfaris.watch.action.STOP_CAPTURE"
         const val ACTION_CAPTURE_STOPPED = "com.elfaris.watch.action.CAPTURE_STOPPED"
+        const val ACTION_PREVIEW_READY = "com.elfaris.watch.action.PREVIEW_READY"
+        const val ACTION_ROOM_PARTICIPANTS = "com.elfaris.watch.action.ROOM_PARTICIPANTS"
+        const val EXTRA_PARTICIPANTS = "participants"
         const val EXTRA_STATUS = "status"
         const val EXTRA_SERVER = "server"
         const val EXTRA_ROOM_URL = "room_url"
@@ -279,6 +296,24 @@ class WatchCaptureService : Service() {
         @Volatile private var webRtcInitialized = false
         @Volatile var isCaptureActive = false
             private set
+        @Volatile private var previewTrack: VideoTrack? = null
+        @Volatile private var previewEglContext: EglBase.Context? = null
+
+        fun attachPreview(renderer: org.webrtc.SurfaceViewRenderer): Boolean {
+            val track = previewTrack ?: return false
+            val context = previewEglContext ?: return false
+            return runCatching {
+                renderer.init(context, null)
+                renderer.setEnableHardwareScaler(true)
+                track.addSink(renderer)
+                true
+            }.getOrDefault(false)
+        }
+
+        fun detachPreview(renderer: org.webrtc.SurfaceViewRenderer) {
+            runCatching { previewTrack?.removeSink(renderer) }
+            runCatching { renderer.release() }
+        }
 
         fun stop(context: android.content.Context) {
             context.startService(Intent(context, WatchCaptureService::class.java).setAction(ACTION_STOP))
