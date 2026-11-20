@@ -34,7 +34,8 @@ class WatchRoomClient(
     private val onStatus: (String) -> Unit,
     private val onParticipants: (List<String>) -> Unit = {},
     private val onFatal: () -> Unit = {},
-    private val onRemoteVideo: (VideoTrack) -> Unit = {}
+    private val onRemoteVideo: (VideoTrack) -> Unit = {},
+    private val onRemoteVideoCleared: () -> Unit = {}
 ) {
     private data class PeerLink(
         val connection: PeerConnection,
@@ -402,6 +403,7 @@ class WatchRoomClient(
                     if (active && presenterId == peerId) return
                     links.values.forEach(::closeLink)
                     links.clear()
+                    onRemoteVideoCleared()
                     onStatus("A transmissão foi encerrada. Você continua na sala.")
                 }
             }
