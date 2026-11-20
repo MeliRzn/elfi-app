@@ -179,6 +179,7 @@ class MainActivity : AppCompatActivity() {
         addText(content, "Adicionar link de ativação", 20f, true, R.color.watch_text)
         addText(content, message ?: "Copie o link recebido após enviar cadastro no privado do bot e cole no campo abaixo. O app identifica o servidor e ativa sua conta automaticamente.", 14f, false, R.color.watch_muted)
         val activationInput = input(content, "Cole o link completo recebido no WhatsApp")
+        val nameInput = input(content, "Nome (opcional, se o WhatsApp não enviou)")
         button(content, "Vincular minha conta").setOnClickListener {
             val raw = activationInput.text?.toString()?.trim().orEmpty()
             if (raw.isBlank()) {
@@ -205,7 +206,7 @@ class MainActivity : AppCompatActivity() {
                     "O link não contém um token válido. Copie o link completo novamente."
                 }
                 store.saveServer(WatchApi.normalizeServer(server))
-                activate(token)
+                activate(token, nameInput.text?.toString()?.trim().orEmpty())
             } catch (error: Exception) {
                 showMessage(error.message ?: "Não foi possível ler o link de ativação.")
             }
