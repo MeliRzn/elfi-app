@@ -104,7 +104,11 @@ class WatchCaptureService : Service() {
                     sendBroadcast(Intent(ACTION_ROOM_PARTICIPANTS).setPackage(packageName)
                         .putExtra(EXTRA_PARTICIPANTS, payload.toString()))
                 },
-                onFatal = { broadcastStatus("Não foi possível manter a conexão com a sala.") },
+                onFatal = {
+                    isRoomActive = false
+                    sendBroadcast(Intent(ACTION_ROOM_ERROR).setPackage(packageName)
+                        .putExtra(EXTRA_STATUS, "A conexão com a sala foi encerrada."))
+                },
                 onRemoteVideo = { track ->
                     previewTrack = track
                     previewEglContext = eglBase?.eglBaseContext
