@@ -90,7 +90,8 @@ jobs:
           test -n "$ANDROID_KEYSTORE_PASSWORD"
           test -n "$ANDROID_KEY_ALIAS"
           test -n "$ANDROID_KEY_PASSWORD"
-          gradle --no-daemon --stacktrace assembleRelease
+          VERSION="${GITHUB_REF_NAME#v}"
+          gradle --no-daemon --stacktrace -PversionName="$VERSION" assembleRelease
           cp app/build/outputs/apk/release/app-release.apk elfaris-watch.apk
       - name: Publish APK release
         uses: softprops/action-gh-release@v2
