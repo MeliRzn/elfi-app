@@ -35,7 +35,8 @@ class WatchRoomClient(
     private val onParticipants: (List<String>) -> Unit = {},
     private val onFatal: () -> Unit = {},
     private val onRemoteVideo: (VideoTrack) -> Unit = {},
-    private val onRemoteVideoCleared: () -> Unit = {}
+    private val onRemoteVideoCleared: () -> Unit = {},
+    private val onJoined: () -> Unit = {}
 ) {
     private data class PeerLink(
         val connection: PeerConnection,
@@ -94,6 +95,7 @@ class WatchRoomClient(
                 }
                 publishParticipants()
                 connectEvents()
+                onJoined()
                 onStatus(if (presenterId.isBlank()) "Você entrou na sala. Ainda não há transmissão ativa."
                     else "Você entrou na sala. Conectando à transmissão...")
             } catch (error: Exception) {
