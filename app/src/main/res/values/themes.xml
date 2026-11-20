@@ -3,10 +3,18 @@
     <style name="Theme.ElfarisWatch" parent="Theme.Material3.Dark.NoActionBar">
         <item name="colorPrimary">@color/watch_primary</item>
         <item name="colorOnPrimary">@color/watch_on_primary</item>
+        <item name="colorSecondary">@color/watch_primary</item>
+        <item name="colorOnSecondary">@color/watch_on_primary</item>
+        <item name="colorTertiary">@color/watch_primary</item>
+        <item name="colorSurface">@color/watch_surface</item>
+        <item name="colorOnSurface">@color/watch_text</item>
+        <item name="colorSurfaceVariant">@color/watch_surface_variant</item>
+        <item name="colorOutline">@color/watch_outline</item>
         <item name="android:colorAccent">@color/watch_primary</item>
         <item name="android:statusBarColor">@color/watch_background</item>
         <item name="android:navigationBarColor">@color/watch_background</item>
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:windowBackground">@color/watch_background</item>
     </style>
