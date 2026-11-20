@@ -459,7 +459,7 @@ class MainActivity : AppCompatActivity() {
             textSize = 15f
             setTextColor(ContextCompat.getColor(this@MainActivity, R.color.watch_text))
             setHintTextColor(ContextCompat.getColor(this@MainActivity, R.color.watch_muted))
-            singleLine = true
+            setSingleLine(true)
         }
         wrapper.addView(edit)
         parent.addView(wrapper, marginParams(top = 16))
