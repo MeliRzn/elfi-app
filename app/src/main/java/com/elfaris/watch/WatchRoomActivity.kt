@@ -37,6 +37,7 @@ class WatchRoomActivity : AppCompatActivity() {
     private lateinit var microphoneSwitch: SwitchMaterial
     private var previewAttached = false
     private var joined = false
+    private var roomConnected = false
     private var server = ""
     private var roomUrl = ""
     private var displayName = "Convidado"
@@ -50,6 +51,11 @@ class WatchRoomActivity : AppCompatActivity() {
                     renderParticipants(intent.getStringExtra(WatchCaptureService.EXTRA_PARTICIPANTS).orEmpty())
                 WatchCaptureService.ACTION_ROOM_STATUS -> {
                     status.text = intent.getStringExtra(WatchCaptureService.EXTRA_STATUS).orEmpty()
+                    syncButtons()
+                }
+                WatchCaptureService.ACTION_ROOM_JOINED -> {
+                    roomConnected = true
+                    status.text = "Você entrou na sala. Pode assistir ou compartilhar sua tela."
                     syncButtons()
                 }
                 WatchCaptureService.ACTION_ROOM_ERROR -> {
@@ -107,6 +113,7 @@ class WatchRoomActivity : AppCompatActivity() {
             addAction(WatchCaptureService.ACTION_PREVIEW_CLEARED)
             addAction(WatchCaptureService.ACTION_ROOM_PARTICIPANTS)
             addAction(WatchCaptureService.ACTION_ROOM_STATUS)
+            addAction(WatchCaptureService.ACTION_ROOM_JOINED)
             addAction(WatchCaptureService.ACTION_ROOM_ERROR)
             addAction(WatchCaptureService.ACTION_ROOM_LEFT)
         }
@@ -283,7 +290,7 @@ class WatchRoomActivity : AppCompatActivity() {
     private fun syncButtons() {
         if (!::shareButton.isInitialized) return
         val sharing = WatchCaptureService.isCaptureActive
-        shareButton.visibility = if (sharing) View.GONE else View.VISIBLE
+        shareButton.visibility = if (!roomConnected || sharing) View.GONE else View.VISIBLE
         stopButton.visibility = if (sharing) View.VISIBLE else View.GONE
     }
 
