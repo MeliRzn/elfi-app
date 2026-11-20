@@ -171,7 +171,11 @@ class MainActivity : AppCompatActivity() {
                 val result = api.me(store.server, store.token)
                 runOnUiThread {
                     account = result
-                    showHome()
+                    if (WatchCaptureService.isCaptureActive) {
+                        startActivity(Intent(this, WatchRoomActivity::class.java))
+                    } else {
+                        showHome()
+                    }
                 }
             } catch (error: Exception) {
                 runOnUiThread {
