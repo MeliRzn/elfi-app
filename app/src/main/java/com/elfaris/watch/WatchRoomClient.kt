@@ -195,7 +195,7 @@ class WatchRoomClient(
                             } else if (line.startsWith("event:")) {
                                 eventName = line.substringAfter(':').trim()
                             } else if (line.startsWith("data:")) {
-                                if (data.isNotEmpty()) data.append('\\n')
+                                if (data.isNotEmpty()) data.append('\n')
                                 data.append(line.substringAfter(':').trimStart())
                             }
                         }
