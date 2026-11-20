@@ -456,7 +456,7 @@ class MainActivity : AppCompatActivity() {
             boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
             boxStrokeColor = ContextCompat.getColor(this@MainActivity, R.color.watch_primary)
             boxBackgroundColor = ContextCompat.getColor(this@MainActivity, R.color.watch_surface_variant)
-            setHintTextColor(ContextCompat.getColor(this@MainActivity, R.color.watch_muted))
+            setHintTextColor(android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.watch_muted)))
             setBoxCornerRadii(dp(12).toFloat(), dp(12).toFloat(), dp(12).toFloat(), dp(12).toFloat())
         }
         val edit = TextInputEditText(wrapper.context).apply {
