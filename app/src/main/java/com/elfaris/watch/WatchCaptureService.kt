@@ -227,6 +227,7 @@ class WatchCaptureService : Service() {
     @Synchronized
     override fun onDestroy() {
         stopped = true
+        isCaptureActive = false
         roomClient?.stop()
         roomClient = null
         runCatching { screenCapturer?.stopCapture() }
