@@ -77,7 +77,8 @@ class MainActivity : AppCompatActivity() {
             putExtra(WatchCaptureService.EXTRA_MICROPHONE, includeMicrophone)
         }
         ContextCompat.startForegroundService(this, serviceIntent)
-        showHome(isSharing = true)
+        showingSharingScreen = false
+        startActivity(Intent(this, WatchRoomActivity::class.java))
         toast(if (includeMicrophone) "Entrando na sala e iniciando a transmissão." else "Entrando na sala e iniciando a transmissão sem microfone.")
     }
 
@@ -249,7 +250,7 @@ class MainActivity : AppCompatActivity() {
         addText(content, "O link é pessoal, de uso único e expira em 10 minutos. Depois da ativação, sua sessão fica salva neste aparelho.", 12f, false, R.color.watch_muted)
     }
 
-    private fun showHome(isSharing: Boolean = WatchCaptureService.isCaptureActive) {
+    private fun showHome(isSharing: Boolean = false) {
         showingSharingScreen = isSharing
         val user = account ?: return showActivationScreen()
         val root = screenBase(showNavigation = true, selectedTab = 1)
@@ -284,6 +285,9 @@ class MainActivity : AppCompatActivity() {
                 beginRoomCapture(roomInput.text?.toString().orEmpty())
             }
             addText(content, "O compartilhamento começa após a confirmação do Android. O microfone é opcional.", 12f, false, R.color.watch_muted)
+        }
+        button(content, "Verificar atualizações", outlined = true).setOnClickListener {
+            AppUpdater(this).checkForUpdate(executor, ::showMessage)
         }
     }
 
