@@ -217,12 +217,10 @@ class MainActivity : AppCompatActivity() {
     private fun showHome() {
         val user = account ?: return showActivationScreen()
         val root = screenBase(showNavigation = true, selectedTab = 1)
-        addHeader(root, "Elfaris Watch", "Tudo pronto, ${user.name}.")
+        addHeader(root, "Elfaris Watch", "Olá, ${user.name}. Sua conta está pronta.")
         val content = card(root)
-        addText(content, "CONTA CONECTADA", 11f, true, R.color.watch_primary)
-        addText(content, user.name, 22f, true, R.color.watch_text)
-        addText(content, formatPhone(user.phone), 14f, false, R.color.watch_muted)
         addText(content, "Entrar em uma sala", 19f, true, R.color.watch_text)
+        addText(content, formatPhone(user.phone), 13f, false, R.color.watch_muted)
         addText(content, "Cole o link de convidado para transmitir sua tela ou abrir a sala no navegador.", 14f, false, R.color.watch_muted)
         val roomInput = input(content, "Link da sala")
         val microphoneSwitch = SwitchMaterial(this).apply {
@@ -422,17 +420,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun addHeader(root: LinearLayout, title: String, subtitle: String) {
-        val cover = ImageView(this).apply {
+        val logo = ImageView(this).apply {
             setImageResource(R.drawable.elfaris_brand)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            contentDescription = "Capa e logo Elfaris"
-            setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.watch_background))
-            adjustViewBounds = false
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            contentDescription = "Logo Elfaris"
+            clipToOutline = true
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(view: android.view.View, outline: android.graphics.Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, dp(24).toFloat())
+                }
+            }
         }
-        root.addView(cover, LinearLayout.LayoutParams(-1, dp(220)).apply {
-            bottomMargin = dp(18)
+        root.addView(logo, LinearLayout.LayoutParams(dp(104), dp(104)).apply {
+            bottomMargin = dp(16)
         })
-        addText(root, title, 28f, true, R.color.watch_text)
+        addText(root, title, 26f, true, R.color.watch_text)
         addText(root, subtitle, 14f, false, R.color.watch_muted)
     }
 
