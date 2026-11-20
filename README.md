@@ -11,7 +11,7 @@ Aplicativo Android nativo do Elfaris Watch. O cliente Android é mantido neste r
 
 O comando `cadastro` não cria contas duplicadas: o número do WhatsApp é único. Se a conta já existir, o link enviado recupera o acesso e cria uma nova sessão para a mesma conta.
 
-Para atualizar o endereço do servidor após a troca do túnel, use `transmitir app` no WhatsApp e abra o link de conexão no aparelho.
+A origem do servidor é configurada pelo link de ativação enviado com `cadastro`. Para criar uma sala compartilhável, use `transmitir app` no WhatsApp e cole o link da sala no aplicativo.
 
 ## Build
 
@@ -31,7 +31,7 @@ O APK fica em **Actions → Elfaris Watch Android → Artifacts → elfaris-watc
 - Ativação e recuperação de acesso por link pessoal do WhatsApp.
 - Sessão persistente e perfil com avatar.
 - Interface em tema escuro, com telas de entrada em layout único.
-- Entrada em salas por link de convidado.
+- Entrada em salas por link compartilhável, com transmissão Android P2P direta para cada espectador.
 - Captura de tela nativa usando MediaProjection.
 - Publicação WebRTC com áudio opcional do microfone.
 - Espectadores podem assistir pelo site.
