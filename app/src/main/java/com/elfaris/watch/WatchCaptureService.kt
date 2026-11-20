@@ -106,6 +106,7 @@ class WatchCaptureService : Service() {
                 },
                 onFatal = {
                     isRoomActive = false
+                    isRoomConnected = false
                     sendBroadcast(Intent(ACTION_ROOM_ERROR).setPackage(packageName)
                         .putExtra(EXTRA_STATUS, "A conexão com a sala foi encerrada."))
                 },
@@ -119,6 +120,7 @@ class WatchCaptureService : Service() {
                     sendBroadcast(Intent(ACTION_PREVIEW_CLEARED).setPackage(packageName))
                 },
                 onJoined = {
+                    isRoomConnected = true
                     sendBroadcast(Intent(ACTION_ROOM_JOINED).setPackage(packageName))
                 }
             )
@@ -126,6 +128,7 @@ class WatchCaptureService : Service() {
         } catch (error: Exception) {
             broadcastStatus(error.message ?: "Não foi possível entrar na sala.")
             isRoomActive = false
+            isRoomConnected = false
             sendBroadcast(Intent(ACTION_ROOM_ERROR).setPackage(packageName)
                 .putExtra(EXTRA_STATUS, error.message ?: "Falha ao entrar na sala."))
             stopSelf()
@@ -221,6 +224,7 @@ class WatchCaptureService : Service() {
         roomClient?.stop()
         roomClient = null
         isRoomActive = false
+        isRoomConnected = false
         previewTrack = null
         previewEglContext = null
         sendBroadcast(Intent(ACTION_ROOM_LEFT).setPackage(packageName))
@@ -316,6 +320,8 @@ class WatchCaptureService : Service() {
         @Volatile var isCaptureActive = false
             private set
         @Volatile var isRoomActive = false
+            private set
+        @Volatile var isRoomConnected = false
             private set
         @Volatile private var previewTrack: VideoTrack? = null
         @Volatile private var previewEglContext: EglBase.Context? = null
