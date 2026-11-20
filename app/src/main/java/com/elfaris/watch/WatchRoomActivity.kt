@@ -1,20 +1,28 @@
 package com.elfaris.watch
 
+import android.Manifest
+import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.switchmaterial.SwitchMaterial
 import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
 import org.json.JSONArray
@@ -24,16 +32,55 @@ class WatchRoomActivity : AppCompatActivity() {
     private lateinit var participantsList: LinearLayout
     private lateinit var participantCount: TextView
     private lateinit var status: TextView
+    private lateinit var shareButton: MaterialButton
+    private lateinit var stopButton: MaterialButton
+    private lateinit var microphoneSwitch: SwitchMaterial
     private var previewAttached = false
+    private var joined = false
+    private var server = ""
+    private var roomUrl = ""
+    private var displayName = "Convidado"
 
     private val roomReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 WatchCaptureService.ACTION_PREVIEW_READY -> attachPreview()
+                WatchCaptureService.ACTION_PREVIEW_CLEARED -> clearPreview()
                 WatchCaptureService.ACTION_ROOM_PARTICIPANTS ->
                     renderParticipants(intent.getStringExtra(WatchCaptureService.EXTRA_PARTICIPANTS).orEmpty())
-                WatchCaptureService.ACTION_CAPTURE_STOPPED -> finish()
+                WatchCaptureService.ACTION_ROOM_STATUS -> {
+                    status.text = intent.getStringExtra(WatchCaptureService.EXTRA_STATUS).orEmpty()
+                    syncButtons()
+                }
+                WatchCaptureService.ACTION_ROOM_ERROR -> {
+                    status.text = intent.getStringExtra(WatchCaptureService.EXTRA_STATUS).orEmpty()
+                    Toast.makeText(this@WatchRoomActivity, status.text, Toast.LENGTH_LONG).show()
+                    finish()
+                }
+                WatchCaptureService.ACTION_ROOM_LEFT -> finish()
             }
+        }
+    }
+
+    private val capturePermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val data = result.data
+        if (result.resultCode == Activity.RESULT_OK && data != null) {
+            WatchCaptureService.startCapture(
+                this, result.resultCode, data,
+                microphoneSwitch.isChecked &&
+                    ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            )
+            status.text = "Preparando o compartilhamento..."
+        } else {
+            status.text = "Compartilhamento cancelado. Você continua na sala."
+        }
+    }
+
+    private val audioPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) launchCapturePermission()
+        else {
+            microphoneSwitch.isChecked = false
+            launchCapturePermission()
         }
     }
 
@@ -42,19 +89,34 @@ class WatchRoomActivity : AppCompatActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, true)
         window.statusBarColor = ContextCompat.getColor(this, R.color.watch_background)
         window.navigationBarColor = ContextCompat.getColor(this, R.color.watch_background)
+        server = intent.getStringExtra(WatchCaptureService.EXTRA_SERVER).orEmpty()
+        roomUrl = intent.getStringExtra(WatchCaptureService.EXTRA_ROOM_URL).orEmpty()
+        displayName = intent.getStringExtra(WatchCaptureService.EXTRA_NAME).orEmpty().ifBlank { "Convidado" }
+        if (server.isBlank() || roomUrl.isBlank()) {
+            Toast.makeText(this, "Dados da sala incompletos.", Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
         buildRoomScreen()
-        attachPreview()
     }
 
     override fun onStart() {
         super.onStart()
         val filter = IntentFilter().apply {
             addAction(WatchCaptureService.ACTION_PREVIEW_READY)
+            addAction(WatchCaptureService.ACTION_PREVIEW_CLEARED)
             addAction(WatchCaptureService.ACTION_ROOM_PARTICIPANTS)
-            addAction(WatchCaptureService.ACTION_CAPTURE_STOPPED)
+            addAction(WatchCaptureService.ACTION_ROOM_STATUS)
+            addAction(WatchCaptureService.ACTION_ROOM_ERROR)
+            addAction(WatchCaptureService.ACTION_ROOM_LEFT)
         }
         ContextCompat.registerReceiver(this, roomReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        if (!joined) {
+            joined = true
+            WatchCaptureService.join(this, server, roomUrl, displayName)
+        }
         attachPreview()
+        syncButtons()
     }
 
     override fun onStop() {
@@ -66,19 +128,17 @@ class WatchRoomActivity : AppCompatActivity() {
         if (previewAttached) {
             WatchCaptureService.detachPreview(preview)
             previewAttached = false
-        } else {
-            runCatching { preview.release() }
-        }
+        } else if (::preview.isInitialized) runCatching { preview.release() }
         super.onDestroy()
     }
 
     private fun buildRoomScreen() {
+        val scroll = ScrollView(this)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(18))
+            setPadding(dp(18), dp(18), dp(18), dp(22))
             setBackgroundColor(ContextCompat.getColor(this@WatchRoomActivity, R.color.watch_background))
         }
-        val top = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val brand = TextView(this).apply {
             text = "ELFARIS WATCH  ·  SALA AO VIVO"
             textSize = 12f
@@ -92,14 +152,13 @@ class WatchRoomActivity : AppCompatActivity() {
             setTextColor(ContextCompat.getColor(this@WatchRoomActivity, R.color.watch_text))
         }
         status = TextView(this).apply {
-            text = "Conectando aos participantes..."
+            text = "Conectando à sala..."
             textSize = 13f
             setTextColor(ContextCompat.getColor(this@WatchRoomActivity, R.color.watch_muted))
         }
-        top.addView(brand)
-        top.addView(heading, params(top = 5))
-        top.addView(status, params(top = 4))
-        root.addView(top)
+        root.addView(brand)
+        root.addView(heading, params(top = 5))
+        root.addView(status, params(top = 4))
 
         val previewCard = MaterialCardView(this).apply {
             radius = dp(20).toFloat()
@@ -113,21 +172,19 @@ class WatchRoomActivity : AppCompatActivity() {
             setBackgroundColor(android.graphics.Color.BLACK)
             setSecure(true)
             setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
-            contentDescription = "Prévia da tela compartilhada"
+            contentDescription = "Tela compartilhada na sala"
         }
         frame.addView(preview, FrameLayout.LayoutParams(-1, -1))
-        val live = TextView(this).apply {
-            text = "●  VOCÊ ESTÁ COMPARTILHANDO"
-            textSize = 10f
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        val empty = TextView(this).apply {
+            text = "Ninguém está compartilhando a tela no momento"
+            textSize = 14f
+            gravity = Gravity.CENTER
             setTextColor(android.graphics.Color.WHITE)
-            setPadding(dp(10), dp(7), dp(10), dp(7))
-            setBackgroundColor(0xCC20242B.toInt())
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+            tag = "empty_preview"
         }
-        frame.addView(live, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply {
-            setMargins(dp(10), dp(10), 0, 0)
-        })
-        previewCard.addView(frame, LinearLayout.LayoutParams(-1, dp(260)))
+        frame.addView(empty, FrameLayout.LayoutParams(-1, -1))
+        previewCard.addView(frame, LinearLayout.LayoutParams(-1, dp(250)))
         root.addView(previewCard, params(top = 18))
 
         val peopleHeader = LinearLayout(this).apply {
@@ -141,7 +198,7 @@ class WatchRoomActivity : AppCompatActivity() {
             setTextColor(ContextCompat.getColor(this@WatchRoomActivity, R.color.watch_text))
         }
         participantCount = TextView(this).apply {
-            text = "1"
+            text = "0"
             textSize = 12f
             setTextColor(ContextCompat.getColor(this@WatchRoomActivity, R.color.watch_primary))
             setPadding(dp(9), dp(4), dp(9), dp(4))
@@ -165,25 +222,97 @@ class WatchRoomActivity : AppCompatActivity() {
         peopleCard.addView(participantsList)
         root.addView(peopleCard, params(top = 10))
 
-        root.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
-        val stop = MaterialButton(this).apply {
-            text = "Parar compartilhamento"
+        microphoneSwitch = SwitchMaterial(this).apply {
+            text = "Incluir áudio do microfone"
+            isChecked = false
+            setTextColor(ContextCompat.getColor(this@WatchRoomActivity, R.color.watch_text))
+        }
+        root.addView(microphoneSwitch, params(top = 12))
+
+        shareButton = MaterialButton(this).apply {
+            text = "Compartilhar tela"
             isAllCaps = false
             cornerRadius = dp(14)
             minimumHeight = dp(52)
             backgroundTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this@WatchRoomActivity, R.color.watch_primary))
             setTextColor(ContextCompat.getColor(this@WatchRoomActivity, R.color.watch_on_primary))
-            setOnClickListener { stopAndLeave() }
+            setOnClickListener { requestShare() }
         }
-        root.addView(stop, params(top = 16))
-        setContentView(root)
-        renderParticipants("[\"Você · transmitindo\"]")
+        root.addView(shareButton, params(top = 14))
+
+        stopButton = MaterialButton(this).apply {
+            text = "Parar compartilhamento"
+            isAllCaps = false
+            cornerRadius = dp(14)
+            minimumHeight = dp(52)
+            setOnClickListener { WatchCaptureService.stop(this@WatchRoomActivity); syncButtons() }
+        }
+        root.addView(stopButton, params(top = 8))
+
+        val leave = MaterialButton(this).apply {
+            text = "Sair da sala"
+            isAllCaps = false
+            cornerRadius = dp(14)
+            minimumHeight = dp(50)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this@WatchRoomActivity, R.color.watch_surface_variant))
+            setTextColor(ContextCompat.getColor(this@WatchRoomActivity, R.color.watch_text))
+            setOnClickListener {
+                WatchCaptureService.leave(this@WatchRoomActivity)
+                finish()
+            }
+        }
+        root.addView(leave, params(top = 8))
+        scroll.addView(root)
+        setContentView(scroll)
+        renderParticipants("[]")
+        syncButtons()
+    }
+
+    private fun requestShare() {
+        if (microphoneSwitch.isChecked &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            audioPermission.launch(Manifest.permission.RECORD_AUDIO)
+        } else launchCapturePermission()
+    }
+
+    private fun launchCapturePermission() {
+        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        capturePermission.launch(manager.createScreenCaptureIntent())
+    }
+
+    private fun syncButtons() {
+        if (!::shareButton.isInitialized) return
+        val sharing = WatchCaptureService.isCaptureActive
+        shareButton.visibility = if (sharing) View.GONE else View.VISIBLE
+        stopButton.visibility = if (sharing) View.VISIBLE else View.GONE
     }
 
     private fun attachPreview() {
-        if (previewAttached || !::preview.isInitialized) return
+        if (!::preview.isInitialized || previewAttached) return
         previewAttached = WatchCaptureService.attachPreview(preview)
-        if (previewAttached) status.text = "Sua transmissão está ativa e visível para quem entrou na sala."
+        if (previewAttached) {
+            preview.parent?.let { parent ->
+                if (parent is FrameLayout) parent.findViewWithTag<View>("empty_preview")?.visibility = View.GONE
+            }
+        }
+    }
+
+    private fun clearPreview() {
+        if (previewAttached) {
+            WatchCaptureService.detachPreview(preview)
+            previewAttached = false
+        }
+        if (::preview.isInitialized) {
+            preview.parent?.let { parent ->
+                if (parent is FrameLayout) parent.findViewWithTag<View>("empty_preview")?.visibility = View.VISIBLE
+            }
+            preview = SurfaceViewRenderer(this).apply {
+                setBackgroundColor(android.graphics.Color.BLACK)
+                setSecure(true)
+                setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+            }
+        }
+        syncButtons()
     }
 
     private fun renderParticipants(raw: String) {
@@ -193,8 +322,8 @@ class WatchRoomActivity : AppCompatActivity() {
             (0 until array.length()).map { array.optString(it) }.filter { it.isNotBlank() }
         }.getOrDefault(emptyList())
         participantsList.removeAllViews()
-        participantCount.text = names.size.coerceAtLeast(1).toString()
-        (names.ifEmpty { listOf("Você · transmitindo") }).forEach { name ->
+        participantCount.text = names.size.toString()
+        names.ifEmpty { listOf("Aguardando participantes...") }.forEach { name ->
             val row = TextView(this).apply {
                 text = "●   $name"
                 textSize = 14f
@@ -205,14 +334,10 @@ class WatchRoomActivity : AppCompatActivity() {
         }
     }
 
-    private fun stopAndLeave() {
-        WatchCaptureService.stop(this)
-        finish()
-    }
-
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        stopAndLeave()
+        WatchCaptureService.leave(this)
+        super.onBackPressed()
     }
 
     private fun params(top: Int = 0) = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(top) }
