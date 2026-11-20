@@ -175,16 +175,6 @@ class WatchRoomActivity : AppCompatActivity() {
             setOnClickListener { stopAndLeave() }
         }
         root.addView(stop, params(top = 16))
-        val leave = MaterialButton(this).apply {
-            text = "Sair da sala"
-            isAllCaps = false
-            cornerRadius = dp(14)
-            minimumHeight = dp(48)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this@WatchRoomActivity, R.color.watch_surface))
-            setTextColor(ContextCompat.getColor(this@WatchRoomActivity, R.color.watch_muted))
-            setOnClickListener { stopAndLeave() }
-        }
-        root.addView(leave, params(top = 8))
         setContentView(root)
         renderParticipants("[\"Você · transmitindo\"]")
     }
