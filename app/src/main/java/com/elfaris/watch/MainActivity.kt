@@ -285,10 +285,10 @@ class MainActivity : AppCompatActivity() {
                 setOnCheckedChangeListener { _, checked -> store.saveMicrophoneEnabled(checked) }
             }
             content.addView(microphoneSwitch, marginParams(top = 14))
-            button(content, "Entrar na sala e compartilhar tela").setOnClickListener {
-                beginRoomCapture(roomInput.text?.toString().orEmpty())
+            button(content, "Entrar na sala").setOnClickListener {
+                openNativeRoom(roomInput.text?.toString().orEmpty())
             }
-            addText(content, "O compartilhamento começa após a confirmação do Android. O microfone é opcional.", 12f, false, R.color.watch_muted)
+            addText(content, "Você pode entrar para assistir. A opção de compartilhar tela ficará disponível dentro da sala.", 12f, false, R.color.watch_muted)
         }
         button(content, "Verificar atualizações", outlined = true).setOnClickListener {
             AppUpdater(this).checkForUpdate(executor, ::showMessage)
@@ -360,6 +360,26 @@ class MainActivity : AppCompatActivity() {
                 account = null
                 showActivationScreen("Você saiu da conta. Para entrar novamente, solicite um novo link pelo WhatsApp.")
             }
+        }
+    }
+
+    private fun openNativeRoom(value: String) {
+        try {
+            val uri = Uri.parse(value.trim())
+            val serverUri = Uri.parse(store.server)
+            require(uri.scheme == "https" && uri.authority == serverUri.authority &&
+                uri.path.orEmpty().matches(Regex("^/watch/[A-Za-z0-9_-]{8,}$")) &&
+                uri.getQueryParameter("host").isNullOrBlank()) {
+                "Use o link HTTPS compartilhável gerado pelo comando transmitir app."
+            }
+            startActivity(Intent(this, WatchRoomActivity::class.java).apply {
+                putExtra(WatchCaptureService.EXTRA_SERVER, store.server)
+                putExtra(WatchCaptureService.EXTRA_ROOM_URL, uri.toString())
+                putExtra(WatchCaptureService.EXTRA_NAME, account?.name ?: "Convidado")
+                putExtra(WatchCaptureService.EXTRA_MICROPHONE, store.microphoneEnabled)
+            })
+        } catch (error: Exception) {
+            showMessage(error.message ?: "Link de sala inválido.")
         }
     }
 
