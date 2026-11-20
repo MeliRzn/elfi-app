@@ -142,7 +142,7 @@ class WatchCaptureService : Service() {
             onStatus = { status -> updateNotification(status) },
             onParticipants = { participants ->
                 val payload = org.json.JSONArray()
-                participants.forEach(payload::put)
+                participants.forEach { payload.put(it) }
                 sendBroadcast(
                     Intent(ACTION_ROOM_PARTICIPANTS)
                         .setPackage(packageName)
